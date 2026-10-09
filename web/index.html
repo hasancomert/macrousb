@@ -17,7 +17,7 @@
   .chk{display:flex;align-items:center;gap:8px;margin-top:14px;color:var(--fg)}
   .btns{display:flex;gap:10px;margin-top:18px}
   button{flex:1;padding:11px;border:0;border-radius:9px;font-size:15px;font-weight:600;cursor:pointer;color:#fff}
-  .start{background:var(--ok);color:#06231a}.stop{background:var(--err)}
+  .start{background:var(--ok);color:#06231a}.stop{background:var(--err)}.save{background:#3b4473}
   button:disabled{opacity:.5;cursor:not-allowed}
   .status{display:flex;align-items:center;gap:10px;font-size:14px}
   .dot{width:11px;height:11px;border-radius:50%;background:var(--muted);flex:none}
@@ -25,6 +25,7 @@
   .banner{border-radius:10px;padding:10px 12px;font-size:13px;margin-bottom:16px;display:none}
   .banner.warn{display:block;background:#2a2410;border:1px solid #5a4a12;color:var(--warn)}
   .banner.err{display:block;background:#2a1414;border:1px solid #5a1f1f;color:var(--err)}
+  .banner.ok{display:block;background:#10241a;border:1px solid #1f5a3a;color:var(--ok)}
   code{background:#11152b;padding:1px 6px;border-radius:5px;color:var(--acc)}
   .foot{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
 </style>
@@ -50,9 +51,13 @@
       </div>
     </div>
     <label class="chk"><input id="enter" type="checkbox"> Her tekrardan sonra Enter</label>
+    <label class="chk"><input id="autoopen" type="checkbox"> Takınca bu sayfayı otomatik aç (deneysel)</label>
     <div class="btns">
       <button id="btnStart" class="start">Başlat</button>
       <button id="btnStop"  class="stop">Durdur</button>
+    </div>
+    <div class="btns">
+      <button id="btnSave" class="save">Ayarları cihaza kaydet (flash)</button>
     </div>
   </div>
 
@@ -81,8 +86,18 @@ function render(st){
   if(typeof st.text === 'string' && document.activeElement !== $('#text')) $('#text').value = st.text;
   if(typeof st.interval === 'number' && document.activeElement !== $('#interval')) $('#interval').value = st.interval;
   if(typeof st.enter === 'boolean') $('#enter').checked = st.enter;
+  if(typeof st.autoopen === 'boolean' && document.activeElement !== $('#autoopen')) $('#autoopen').checked = st.autoopen;
   $('#btnStart').disabled = run;
   $('#btnStop').disabled  = !run;
+}
+
+function params(){
+  return new URLSearchParams({
+    text: $('#text').value,
+    interval: $('#interval').value,
+    enter: $('#enter').checked ? '1':'0',
+    autoopen: $('#autoopen').checked ? '1':'0'
+  }).toString();
 }
 
 async function refresh(){
@@ -97,17 +112,19 @@ async function refresh(){
 }
 
 $('#btnStart').onclick = async () => {
-  const p = new URLSearchParams({
-    text: $('#text').value,
-    interval: $('#interval').value,
-    enter: $('#enter').checked ? '1':'0'
-  });
-  try { render(await api('/api/start?'+p.toString())); }
+  try { render(await api('/api/start?'+params())); }
   catch(e){ banner('err','Başlatılamadı: '+e.message); }
 };
 $('#btnStop').onclick = async () => {
   try { render(await api('/api/stop')); }
   catch(e){ banner('err','Durdurulamadı: '+e.message); }
+};
+$('#btnSave').onclick = async () => {
+  $('#btnSave').disabled = true;
+  banner('warn','Kaydediliyor… (flash yazılırken USB kısa süre duraklayabilir)');
+  try { render(await api('/api/save?'+params())); banner('ok','Ayarlar cihaza kaydedildi.'); }
+  catch(e){ banner('err','Kaydedilemedi: '+e.message); }
+  finally { $('#btnSave').disabled = false; }
 };
 
 $('#url').textContent = location.origin + '/';

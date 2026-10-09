@@ -60,6 +60,7 @@ APP_C = \
   src/usb_descriptors.c \
   src/net_glue.c \
   src/http_server.c \
+  src/flash_store.c \
   src/syscalls.c \
   board/board_f411_blackpill.c
 

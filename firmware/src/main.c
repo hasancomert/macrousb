@@ -32,9 +32,3 @@ int main(void)
     app_task();       /* typing state machine + status LED */
   }
 }
-
-/* USB lifecycle callbacks (optional; used for LED state) */
-void tud_mount_cb(void)   {}
-void tud_umount_cb(void)  {}
-void tud_suspend_cb(bool remote_wakeup_en) { (void)remote_wakeup_en; }
-void tud_resume_cb(void)  {}

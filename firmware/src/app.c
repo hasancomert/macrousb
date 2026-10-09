@@ -12,6 +12,7 @@
 #include "board.h"
 #include "keymap.h"
 #include "http_server.h"
+#include "flash_store.h"
 
 #include "tusb.h"
 #include "class/hid/hid.h"
@@ -31,6 +32,7 @@
 static char     s_text[TEXT_MAX] = "";
 static uint32_t s_interval_ms = 5000;
 static bool     s_enter = false;
+static bool     s_autoopen = false;   /* optional: open settings page on plug-in */
 
 static bool     s_running = false;
 static uint32_t s_count = 0;
@@ -43,6 +45,21 @@ static size_t   s_seq_len = 0;
 static size_t   s_emit_i = 0;
 static bool     s_emit_press = true;        /* next action: true=down, false=up */
 static bool     s_release_pending = false;  /* flush an all-keys-up report       */
+
+/* Optional auto-open: after enumeration, press Win+R and type the device URL so
+ * the host's default browser opens the settings page. Timing-sensitive and
+ * best-effort; off by default. */
+typedef enum {
+  AO_OFF = 0, AO_WAIT, AO_WINR_DN, AO_WINR_UP, AO_DLG, AO_TYPE,
+  AO_ENTER_DN, AO_ENTER_UP, AO_DONE
+} ao_state_t;
+static ao_state_t s_ao = AO_OFF;
+static uint32_t   s_ao_t = 0;
+static size_t     s_ao_i = 0;
+static bool       s_ao_press = true;
+static const char AO_URL[] = "http://192.168.7.1";
+#define AO_BOOT_DELAY_MS 8000u   /* let RNDIS driver install + DHCP settle */
+#define AO_DLG_DELAY_MS  1200u   /* wait for the Run dialog to appear       */
 
 //--------------------------------------------------------------------+
 // HID helpers
@@ -119,6 +136,69 @@ static void app_stop(void)
   s_running  = false;
   s_emitting = false;
   s_release_pending = true;   /* make sure no key stays logically held */
+}
+
+//--------------------------------------------------------------------+
+// optional auto-open sequence
+//--------------------------------------------------------------------+
+static bool ao_active(void)
+{
+  return s_ao >= AO_WINR_DN && s_ao <= AO_ENTER_UP;
+}
+
+static void ao_type_step(void)
+{
+  size_t len = sizeof(AO_URL) - 1;
+  if (s_ao_press) {
+    if (s_ao_i >= len) { s_ao = AO_ENTER_DN; return; }
+    uint8_t mod, key;
+    if (keymap_ascii_to_hid(AO_URL[s_ao_i], &mod, &key)) {
+      hid_send_key(mod, key);
+      s_ao_press = false;
+    } else {
+      s_ao_i++;
+    }
+  } else {
+    hid_send_release();
+    s_ao_press = true;
+    s_ao_i++;
+  }
+}
+
+static void ao_task(void)
+{
+  if (s_ao == AO_OFF || s_ao == AO_DONE) return;
+  if (!tud_mounted()) return;
+  if (s_running) { s_ao = AO_DONE; return; }   /* user took over: abort */
+
+  uint32_t now = board_millis();
+  bool ready = tud_hid_ready();
+
+  switch (s_ao) {
+    case AO_WAIT:
+      if ((int32_t)(now - s_ao_t) >= 0) s_ao = AO_WINR_DN;
+      break;
+    case AO_WINR_DN:
+      if (ready) { hid_send_key(KEYBOARD_MODIFIER_LEFTGUI, HID_KEY_R); s_ao = AO_WINR_UP; }
+      break;
+    case AO_WINR_UP:
+      if (ready) { hid_send_release(); s_ao_t = now + AO_DLG_DELAY_MS; s_ao = AO_DLG; }
+      break;
+    case AO_DLG:
+      if ((int32_t)(now - s_ao_t) >= 0) { s_ao_i = 0; s_ao_press = true; s_ao = AO_TYPE; }
+      break;
+    case AO_TYPE:
+      if (ready) ao_type_step();
+      break;
+    case AO_ENTER_DN:
+      if (ready) { hid_send_key(0, HID_KEY_ENTER); s_ao = AO_ENTER_UP; }
+      break;
+    case AO_ENTER_UP:
+      if (ready) { hid_send_release(); s_ao = AO_DONE; }
+      break;
+    default:
+      break;
+  }
 }
 
 //--------------------------------------------------------------------+
@@ -216,10 +296,11 @@ static int status_json(char *out, int cap)
   uint32_t sec = s_interval_ms / 1000;
   uint32_t tenths = (s_interval_ms % 1000) / 100;
   int n = snprintf(out, (size_t)cap,
-    "{\"running\":%s,\"interval\":%lu.%lu,\"enter\":%s,\"count\":%lu,\"text\":\"%s\"}",
+    "{\"running\":%s,\"interval\":%lu.%lu,\"enter\":%s,\"autoopen\":%s,\"count\":%lu,\"text\":\"%s\"}",
     s_running ? "true" : "false",
     (unsigned long)sec, (unsigned long)tenths,
     s_enter ? "true" : "false",
+    s_autoopen ? "true" : "false",
     (unsigned long)s_count, esc);
   if (n < 0) return 0;
   return (n < cap) ? n : (cap - 1);
@@ -241,6 +322,20 @@ static void apply_config(const char *query)
   if (query_get(query, "enter", buf, sizeof(buf))) {
     s_enter = (buf[0] == '1' || buf[0] == 't' || buf[0] == 'T');
   }
+  if (query_get(query, "autoopen", buf, sizeof(buf))) {
+    s_autoopen = (buf[0] == '1' || buf[0] == 't' || buf[0] == 'T');
+  }
+}
+
+static bool config_save(void)
+{
+  flash_store_cfg_t c;
+  memset(&c, 0, sizeof(c));
+  strncpy(c.text, s_text, sizeof(c.text) - 1);
+  c.interval_ms = s_interval_ms;
+  c.enter       = s_enter;
+  c.autoopen    = s_autoopen;
+  return flash_store_save(&c);
 }
 
 int app_http_api(const char *method, const char *path, const char *query,
@@ -258,6 +353,11 @@ int app_http_api(const char *method, const char *path, const char *query,
     apply_config(query);
     return status_json(body, body_cap);
   }
+  if (strcmp(path, "/api/save") == 0) {
+    apply_config(query);
+    config_save();            /* persist to flash (brief USB pause) */
+    return status_json(body, body_cap);
+  }
   if (strcmp(path, "/api/start") == 0) {
     apply_config(query);
     app_start();
@@ -273,10 +373,11 @@ static void led_update(void)
 {
   uint32_t now = board_millis();
   bool on;
-  if (!tud_mounted())      on = (now / 120) & 1;        /* fast blink: no host */
-  else if (!s_running)     on = (now % 2000) < 40;      /* idle heartbeat blip */
-  else if (s_emitting)     on = (now / 60) & 1;         /* typing: flicker      */
-  else                     on = true;                   /* running, waiting     */
+  if (!tud_mounted())        on = (now / 120) & 1;      /* fast blink: no host  */
+  else if (ao_active())      on = (now / 60) & 1;       /* auto-open: flicker   */
+  else if (!s_running)       on = (now % 2000) < 40;    /* idle heartbeat blip  */
+  else if (s_emitting)       on = (now / 60) & 1;       /* typing: flicker      */
+  else                       on = true;                 /* running, waiting     */
   board_led_write(on);
 }
 
@@ -289,7 +390,21 @@ void app_init(void)
   s_text[0] = '\0';
   s_interval_ms = 5000;
   s_enter = false;
+  s_autoopen = false;
   s_running = false;
+
+  /* Restore last saved config from flash, if any (does NOT auto-start). */
+  flash_store_cfg_t c;
+  if (flash_store_load(&c)) {
+    strncpy(s_text, c.text, TEXT_MAX - 1);
+    s_text[TEXT_MAX - 1] = '\0';
+    uint32_t ms = c.interval_ms;
+    if (ms < INTERVAL_MIN_MS) ms = INTERVAL_MIN_MS;
+    if (ms > INTERVAL_MAX_MS) ms = INTERVAL_MAX_MS;
+    s_interval_ms = ms;
+    s_enter = c.enter;
+    s_autoopen = c.autoopen;
+  }
 }
 
 void app_task(void)
@@ -306,7 +421,27 @@ void app_task(void)
     if (s_emitting && tud_hid_ready()) {
       emission_step();
     }
+  } else {
+    ao_task();   /* optional auto-open runs only while not typing */
   }
 
   led_update();
+}
+
+//--------------------------------------------------------------------+
+// USB mount callbacks (arm/disarm auto-open)
+//--------------------------------------------------------------------+
+void tud_mount_cb(void)
+{
+  if (s_autoopen) {
+    s_ao = AO_WAIT;
+    s_ao_t = board_millis() + AO_BOOT_DELAY_MS;
+    s_ao_i = 0;
+    s_ao_press = true;
+  }
+}
+
+void tud_umount_cb(void)
+{
+  s_ao = AO_OFF;
 }

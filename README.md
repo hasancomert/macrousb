@@ -98,6 +98,9 @@ macrousb/
 │   │   └── board_f411_blackpill.c
 │   ├── src/
 │   │   ├── main.c             # süper döngü (tud_task + lwIP + app)
+│   │   ├── app.c/.h           # config + yazma durum makinesi + /api + LED + auto-open
+│   │   ├── keymap_us.c/keymap.h  # ASCII -> HID (US QWERTY)
+│   │   ├── flash_store.c/.h   # config'i flash sektör 7'de sakla/yükle
 │   │   ├── tusb_config.h      # TinyUSB yapılandırması
 │   │   ├── usb_descriptors.c  # composite RNDIS/ECM + HID tanımlayıcıları
 │   │   ├── net_glue.c/.h      # lwIP netif + DHCP/DNS sunucu kurulumu
@@ -231,6 +234,18 @@ Ayar sayfası: **http://192.168.7.1/**
 6. **Durdur** ile her an durdurabilirsin. Durum ve tekrar sayısı sayfada
    canlı görünür.
 
+### Opsiyonel: ayarları kaydetme ve otomatik açma
+
+- **Ayarları cihaza kaydet (flash):** Girdiğin metin/aralık/seçenekler cihazın
+  flash'ına yazılır ve **tak-çıkar sonrası hatırlanır** (otomatik başlatmaz,
+  sadece alanları doldurur). Kaydederken flash silinirken USB **~1-2 sn kısa
+  süre duraklayabilir**; bu normaldir.
+- **Takınca bu sayfayı otomatik aç (deneysel):** İşaretleyip kaydedersen, cihaz
+  bir sonraki takılışında ~8 sn sonra **Win+R → cihaz URL'si → Enter** dizisini
+  klavye olarak basar, böylece varsayılan tarayıcıda ayar sayfası açılır.
+  Zamanlaması hassastır (sürücü kurulumu/odak); yalnızca Windows'ta anlamlıdır ve
+  başarısız olabilir — bu yüzden varsayılan **kapalı**.
+
 ### Durum LED'i (PC13)
 
 | Durum | LED |
@@ -269,6 +284,16 @@ gerçek donanımda senin yapacağın kontroller.)
 5. Farklı aralık/metin ile tekrar dene; aralık `0.1`–`3600` sn aralığına
    sıkıştırılır.
 
+### Adım 5 — opsiyonel özellikler
+
+- **Flash kalıcılığı:** Ayarları gir, **Ayarları cihaza kaydet**'e bas (sayfa
+  "kaydedildi" der). Kartı çıkar-tak; sayfayı aç → alanların kayıtlı değerlerle
+  dolu geldiğini gör (yazma yine elle Başlat ister).
+- **Otomatik aç:** "Takınca bu sayfayı otomatik aç"ı işaretle, kaydet, kartı
+  çıkar-tak. ~8 sn sonra Windows'ta Çalıştır penceresi açılıp URL yazılmalı ve
+  tarayıcı ayar sayfasını açmalı. Açılmazsa (odak/sürücü/zamanlama) elle
+  `http://192.168.7.1/` adresine gir.
+
 ---
 
 ## Bilinen kısıtlar
@@ -280,11 +305,17 @@ gerçek donanımda senin yapacağın kontroller.)
   ASCII karakterler. Eşlenemeyen karakterler atlanır.
 - **macOS:** RNDIS'i desteklemez. macOS için `make USE_ECM=1` ile ECM build'i
   kullan.
-- **STM32F103 "Blue Pill" neden yetersiz:** Bu firmware tek başına ~**42 KB RAM**
+- **STM32F103 "Blue Pill" neden yetersiz:** Bu firmware tek başına ~**50 KB RAM**
   kullanıyor (lwIP tamponları + USB + TinyUSB). F103'ün toplam **20 KB RAM**'i
-  bunun altında; LwIP + USB ağ + HTTP aynı anda sığmaz. Ayrıca F103'ün USB
+  bunun çok altında; LwIP + USB ağ + HTTP aynı anda sığmaz. Ayrıca F103'ün USB
   çevre birimi OTG değil tam-hızlı device-only'dir ve bu yığın onun için
   uygun değildir. Bu yüzden birincil tasarım F4 üzerinedir.
+- **Otomatik aç (deneysel):** Zamanlamaya dayanır (sürücü kurulumu, pencere
+  odağı, ağ hazır olması). Başarısız olabilir; elle URL'ye girmek her zaman
+  çalışır. Yalnızca Windows'ta anlamlıdır.
+- **Flash kaydı:** Kaydetme işlemi tüm 128 KB'lik sektörü siler ve bu sırada MCU
+  flash'tan kod çalıştıramadığı için USB **~1-2 sn duraklar**. Her ayar
+  değişiminde değil, yalnızca "Kaydet"e basınca yazılır (flash ömrü için).
 - **VID/PID:** `0xCafe/0x4020` — TinyUSB'nin test kimlikleri; kayıtlı USB
   kimlikleri değildir. Kişisel kullanım için uygundur, ürünleştirme için değil.
 
@@ -297,7 +328,7 @@ gerçek donanımda senin yapacağın kontroller.)
 - [x] **Adım 3** — Ayar formu + config saklama (`/api/config|start|stop|status`).
 - [x] **Adım 4** — HID klavye yazma (Başlat/Durdur + aralık + Enter) + US keymap +
       idle/running/typing LED durumları.
-- [ ] **Adım 5** — (Opsiyonel) "sayfayı otomatik aç" (Win+R dizisi) + config'i
+- [x] **Adım 5** — (Opsiyonel) "sayfayı otomatik aç" (Win+R dizisi) + config'i
       flash'ta saklama.
 
 ---
