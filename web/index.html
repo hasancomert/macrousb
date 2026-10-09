@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MacroUSB Ayarları</title>
+<style>
+  :root{--bg:#0f1221;--card:#1a1f38;--fg:#e8ecff;--muted:#9aa3c7;--acc:#5b8cff;--ok:#36d399;--warn:#fbbd23;--err:#f87272;--line:#2a3157}
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--fg)}
+  .wrap{max-width:560px;margin:0 auto;padding:24px 16px}
+  h1{font-size:22px;margin:0 0 4px} .sub{color:var(--muted);margin:0 0 20px;font-size:13px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:16px}
+  label{display:block;font-size:13px;color:var(--muted);margin:12px 0 4px}
+  input[type=text],input[type=number]{width:100%;padding:10px 12px;border-radius:9px;border:1px solid var(--line);background:#11152b;color:var(--fg);font-size:15px}
+  .row{display:flex;gap:12px}.row>div{flex:1}
+  .chk{display:flex;align-items:center;gap:8px;margin-top:14px;color:var(--fg)}
+  .btns{display:flex;gap:10px;margin-top:18px}
+  button{flex:1;padding:11px;border:0;border-radius:9px;font-size:15px;font-weight:600;cursor:pointer;color:#fff}
+  .start{background:var(--ok);color:#06231a}.stop{background:var(--err)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .status{display:flex;align-items:center;gap:10px;font-size:14px}
+  .dot{width:11px;height:11px;border-radius:50%;background:var(--muted);flex:none}
+  .dot.run{background:var(--ok);box-shadow:0 0 8px var(--ok)}.dot.idle{background:var(--muted)}
+  .banner{border-radius:10px;padding:10px 12px;font-size:13px;margin-bottom:16px;display:none}
+  .banner.warn{display:block;background:#2a2410;border:1px solid #5a4a12;color:var(--warn)}
+  .banner.err{display:block;background:#2a1414;border:1px solid #5a1f1f;color:var(--err)}
+  code{background:#11152b;padding:1px 6px;border-radius:5px;color:var(--acc)}
+  .foot{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>MacroUSB</h1>
+  <p class="sub">Cihaz-üstü klavye otomasyonu · <code id="url">http://192.168.7.1/</code></p>
+
+  <div id="banner" class="banner"></div>
+
+  <div class="card">
+    <div class="status"><span id="dot" class="dot idle"></span><span id="stxt">Durum okunuyor…</span></div>
+  </div>
+
+  <div class="card">
+    <label for="text">Yazılacak metin</label>
+    <input id="text" type="text" placeholder="ör. w24rafsfe" autocomplete="off" spellcheck="false">
+    <div class="row">
+      <div>
+        <label for="interval">Tekrar aralığı (saniye)</label>
+        <input id="interval" type="number" min="0.1" step="0.1" value="5">
+      </div>
+    </div>
+    <label class="chk"><input id="enter" type="checkbox"> Her tekrardan sonra Enter</label>
+    <div class="btns">
+      <button id="btnStart" class="start">Başlat</button>
+      <button id="btnStop"  class="stop">Durdur</button>
+    </div>
+  </div>
+
+  <p class="foot">Klavye düzeni: US QWERTY varsayılır. Açılışta otomatik başlamaz.</p>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const banner = (cls, msg) => { const b=$('#banner'); b.className='banner '+cls; b.textContent=msg; };
+let apiOk = false;
+
+async function api(path, opts){
+  const r = await fetch(path, opts);
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  return r.json();
+}
+
+function render(st){
+  apiOk = true;
+  $('#banner').className = 'banner';
+  const run = !!st.running;
+  $('#dot').className = 'dot ' + (run ? 'run' : 'idle');
+  $('#stxt').textContent = run
+    ? `Çalışıyor · her ${st.interval}s · ${st.count ?? 0} tekrar`
+    : 'Boşta (durduruldu)';
+  if(typeof st.text === 'string' && document.activeElement !== $('#text')) $('#text').value = st.text;
+  if(typeof st.interval === 'number' && document.activeElement !== $('#interval')) $('#interval').value = st.interval;
+  if(typeof st.enter === 'boolean') $('#enter').checked = st.enter;
+  $('#btnStart').disabled = run;
+  $('#btnStop').disabled  = !run;
+}
+
+async function refresh(){
+  try { render(await api('/api/status')); }
+  catch(e){
+    apiOk = false;
+    $('#dot').className='dot idle';
+    $('#stxt').textContent='Cihaz çalışıyor (web sunucusu aktif)';
+    banner('warn','Ayar API’si bu derlemede henüz yok — bu statik sayfa adım 2’nin doğrulamasıdır. Form adım 3’te etkinleşir.');
+    $('#btnStart').disabled=true; $('#btnStop').disabled=true;
+  }
+}
+
+$('#btnStart').onclick = async () => {
+  const p = new URLSearchParams({
+    text: $('#text').value,
+    interval: $('#interval').value,
+    enter: $('#enter').checked ? '1':'0'
+  });
+  try { render(await api('/api/start?'+p.toString())); }
+  catch(e){ banner('err','Başlatılamadı: '+e.message); }
+};
+$('#btnStop').onclick = async () => {
+  try { render(await api('/api/stop')); }
+  catch(e){ banner('err','Durdurulamadı: '+e.message); }
+};
+
+$('#url').textContent = location.origin + '/';
+refresh();
+setInterval(refresh, 1500);
+</script>
+</body>
+</html>

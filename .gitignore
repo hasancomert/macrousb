@@ -1,0 +1,19 @@
+# Vendored third-party dependencies (re-fetch with firmware/third_party/fetch_deps.sh)
+/firmware/third_party/tinyusb/
+/firmware/third_party/lwip/
+/firmware/third_party/cmsis_core/
+/firmware/third_party/cmsis_device_f4/
+/firmware/third_party/stm32f4xx_hal_driver/
+
+# Build output
+/firmware/build/
+
+# Editor / OS cruft
+*.o
+*.d
+*.elf
+*.bin
+*.hex
+*.map
+*.list
+.DS_Store
