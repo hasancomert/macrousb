@@ -10,6 +10,7 @@
 #include "tusb.h"
 #include "net_glue.h"
 #include "http_server.h"
+#include "app.h"
 
 int main(void)
 {
@@ -23,23 +24,12 @@ int main(void)
 
   net_init();
   http_server_init();
-
-  uint32_t last = 0;
-  bool led = false;
+  app_init();
 
   while (1) {
     tud_task();       /* USB device stack */
     net_service();    /* lwIP timers      */
-
-    /* Heartbeat: slow blink when mounted, fast when not. Replaced by
-     * idle/running/typing states once the typer is added. */
-    uint32_t now = board_millis();
-    uint32_t period = tud_mounted() ? 1000 : 250;
-    if (now - last >= period) {
-      last = now;
-      led = !led;
-      board_led_write(led);
-    }
+    app_task();       /* typing state machine + status LED */
   }
 }
 

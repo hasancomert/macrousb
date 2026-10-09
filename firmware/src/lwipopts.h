@@ -19,7 +19,7 @@
 #define MEM_LIBC_MALLOC             0
 #define MEMP_MEM_MALLOC             0
 #define MEM_ALIGNMENT               4
-#define MEM_SIZE                    (16 * 1024)
+#define MEM_SIZE                    (24 * 1024)
 
 #define MEMP_NUM_PBUF               16
 #define PBUF_POOL_SIZE              8

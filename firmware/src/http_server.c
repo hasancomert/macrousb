@@ -16,7 +16,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 
-#define REQ_MAX   192
+#define REQ_MAX   640   /* request line; fits GET /api/start?text=<url-encoded 127 ch> */
 #define BUF_MAX   768
 #define JSON_MAX  512
 

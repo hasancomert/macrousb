@@ -219,7 +219,30 @@ Ayar sayfası: **http://192.168.7.1/**
 
 ---
 
-## Doğrulama (Adım 2)
+## Kullanım
+
+1. Cihazı tak, tarayıcıda **http://192.168.7.1/** aç.
+2. **Yazılacak metin** kutusuna metni gir (ör. `w24rafsfe`).
+3. **Tekrar aralığı**nı saniye olarak gir (ondalık olabilir, ör. `2.5`).
+4. İstersen **Her tekrardan sonra Enter**'ı işaretle.
+5. **Başlat**'a bas. ⚠️ Yazılan tuşlar **o an odakta olan pencereye** gider;
+   Başlat'tan sonra metnin gitmesini istediğin pencereye (ör. bir metin
+   editörü) tıkla. İlk tuş, güvenlik için **bir aralık (interval) sonra** basılır.
+6. **Durdur** ile her an durdurabilirsin. Durum ve tekrar sayısı sayfada
+   canlı görünür.
+
+### Durum LED'i (PC13)
+
+| Durum | LED |
+|-------|-----|
+| Host'a bağlı değil | hızlı yanıp söner (~8 Hz) |
+| Boşta (durduruldu) | ~2 sn'de bir kısa çakma |
+| Çalışıyor, bekliyor | sabit yanık |
+| Yazıyor (tuş basıyor) | titrer (~8 Hz) |
+
+## Doğrulama
+
+### Adım 2 — enumerate + web sayfası
 
 Bu adımın hedefi: **cihaz USB ağ olarak enumerate olsun ve statik ayar sayfası
 tarayıcıdan açılsın.** (Not: Bu ortamda derleme doğrulandı; aşağıdaki adımlar
@@ -230,18 +253,31 @@ gerçek donanımda senin yapacağın kontroller.)
 3. **Enumerate kontrolü:**
    - Windows: Aygıt Yöneticisi → Ağ bağdaştırıcıları → "USB RNDIS…" görünmeli.
    - Linux: `ip link` yeni bir arayüz, `dmesg` `rndis_host` satırı göstermeli.
-4. Durum LED'i (PC13) yanıp sönüyor olmalı (mount sonrası ~1 sn periyot).
+4. Durum LED'i (PC13): host'a bağlıyken, boştayken ~2 sn'de bir kısa çakar
+   (LED tablosuna bak).
 5. Tarayıcıda **http://192.168.7.1/** aç → MacroUSB ayar sayfası gelmeli.
-   Bu derlemede form, "Ayar API'si henüz yok (Adım 3)" uyarısını gösterir;
-   sayfanın gelmesi web sunucusunun çalıştığını doğrular.
+
+### Adım 3–4 — ayar formu + yazma
+
+1. Bir metin editörü aç (Not Defteri / gedit / herhangi bir metin kutusu).
+2. Ayar sayfasında metni ve aralığı gir, **Başlat**'a bas, sonra editör
+   penceresine tıkla.
+3. Her `interval` saniyede metnin yazıldığını gör; "Enter" işaretliyse her
+   tekrardan sonra yeni satır. Sayfadaki durum "Çalışıyor" ve tekrar sayacı
+   artmalı; LED sabit yanıp yazma anında titremeli.
+4. **Durdur**'a bas → yazma durur, durum "Boşta" olur.
+5. Farklı aralık/metin ile tekrar dene; aralık `0.1`–`3600` sn aralığına
+   sıkıştırılır.
 
 ---
 
 ## Bilinen kısıtlar
 
-- **Klavye düzeni:** Firmware US QWERTY varsayar. Host'un klavye düzeni farklıysa
-  (ör. TR-Q), basılan tuşlar farklı karakterler üretebilir. (Karakter→HID eşlemesi
-  Adım 4'te eklenir.)
+- **Klavye düzeni:** Firmware US QWERTY varsayar (karakter→HID eşlemesi
+  `src/keymap_us.c`). Host'un klavye düzeni farklıysa (ör. TR-Q), basılan tuşlar
+  farklı karakterler üretebilir. Başka düzen için `keymap_us.c` değiştirilir.
+- **Yazılabilen karakterler:** Yalnızca US QWERTY'de tek tuş/Shift ile üretilen
+  ASCII karakterler. Eşlenemeyen karakterler atlanır.
 - **macOS:** RNDIS'i desteklemez. macOS için `make USE_ECM=1` ile ECM build'i
   kullan.
 - **STM32F103 "Blue Pill" neden yetersiz:** Bu firmware tek başına ~**42 KB RAM**
@@ -258,8 +294,8 @@ gerçek donanımda senin yapacağın kontroller.)
 
 - [x] **Adım 1** — Plan + USB sınıfı kararı (RNDIS) + yığın (TinyUSB) onayı.
 - [x] **Adım 2** — USB ağ enumerate + statik ayar sayfası (web sunucusu çalışır).
-- [ ] **Adım 3** — Ayar formu + config saklama (`/api/config|start|stop|status`).
-- [ ] **Adım 4** — HID klavye yazma (Başlat/Durdur + aralık + Enter) + US keymap +
+- [x] **Adım 3** — Ayar formu + config saklama (`/api/config|start|stop|status`).
+- [x] **Adım 4** — HID klavye yazma (Başlat/Durdur + aralık + Enter) + US keymap +
       idle/running/typing LED durumları.
 - [ ] **Adım 5** — (Opsiyonel) "sayfayı otomatik aç" (Win+R dizisi) + config'i
       flash'ta saklama.

@@ -56,7 +56,7 @@
     </div>
   </div>
 
-  <p class="foot">Klavye düzeni: US QWERTY varsayılır. Açılışta otomatik başlamaz.</p>
+  <p class="foot">Başlat’a bastıktan sonra yazının gideceği pencereye tıklayın; ilk tuş bir aralık (interval) sonra basılır.<br>Klavye düzeni US QWERTY varsayılır · açılışta otomatik başlamaz.</p>
 </div>
 
 <script>
@@ -91,7 +91,7 @@ async function refresh(){
     apiOk = false;
     $('#dot').className='dot idle';
     $('#stxt').textContent='Cihaz çalışıyor (web sunucusu aktif)';
-    banner('warn','Ayar API’si bu derlemede henüz yok — bu statik sayfa adım 2’nin doğrulamasıdır. Form adım 3’te etkinleşir.');
+    banner('warn','Ayar API’sine ulaşılamadı. Web sunucusu çalışıyor; güncel firmware ile yeniden deneyin.');
     $('#btnStart').disabled=true; $('#btnStop').disabled=true;
   }
 }
