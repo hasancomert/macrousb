@@ -56,6 +56,7 @@ LDFLAGS  = $(MCUFLAGS) -specs=nano.specs -T$(LDSCRIPT) \
 APP_C = \
   src/main.c \
   src/app.c \
+  src/macro.c \
   src/keymap_us.c \
   src/usb_descriptors.c \
   src/net_glue.c \

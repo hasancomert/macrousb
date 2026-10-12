@@ -10,6 +10,7 @@
 #include "tusb.h"
 #include "class/net/net_device.h"
 #include "board.h"
+#include "usb_reports.h"
 #include <string.h>
 
 /* VID/PID: 0xCafe is TinyUSB's test VID. These are NOT registered USB IDs;
@@ -80,7 +81,8 @@ uint8_t const *tud_descriptor_device_cb(void)
 // HID report descriptor (plain keyboard, no report id)
 //--------------------------------------------------------------------+
 static uint8_t const desc_hid_report[] = {
-  TUD_HID_REPORT_DESC_KEYBOARD()
+  TUD_HID_REPORT_DESC_KEYBOARD(HID_REPORT_ID(REPORT_ID_KEYBOARD)),
+  TUD_HID_REPORT_DESC_MOUSE(HID_REPORT_ID(REPORT_ID_MOUSE)),
 };
 
 uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance)
@@ -111,7 +113,8 @@ static uint8_t const desc_configuration[] = {
                        EPNUM_NET_OUT, EPNUM_NET_IN, 64),
 #endif
 
-  TUD_HID_DESCRIPTOR(ITF_NUM_HID, STRID_HID_ITF, HID_ITF_PROTOCOL_KEYBOARD,
+  /* protocol NONE: report IDs are used, so this is not a boot keyboard */
+  TUD_HID_DESCRIPTOR(ITF_NUM_HID, STRID_HID_ITF, HID_ITF_PROTOCOL_NONE,
                      sizeof(desc_hid_report), EPNUM_HID_IN, CFG_TUD_HID_EP_BUFSIZE, 10),
 };
 

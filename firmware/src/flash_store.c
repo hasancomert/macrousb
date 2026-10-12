@@ -1,65 +1,50 @@
 /**
- * flash_store.c -- config persistence in STM32F411 flash sector 7.
+ * flash_store.c -- macro-set persistence in STM32F411 flash sector 7.
+ *
+ * Layout at 0x08060000: { magic, macro_set_t, crc }, programmed word-by-word.
  */
 #include "flash_store.h"
 #include "stm32f4xx_hal.h"
 #include <string.h>
 
-#define STORE_ADDR    0x08060000UL   /* sector 7 base (last 128 KiB) */
+#define STORE_ADDR    0x08060000UL    /* sector 7 base (last 128 KiB) */
 #define STORE_SECTOR  FLASH_SECTOR_7
-#define STORE_MAGIC   0x4D554331UL    /* "MUC1" */
+#define STORE_MAGIC   0x4D554332UL     /* "MUC2" (v2 = macro set) */
 
-#define FLAG_ENTER    (1u << 0)
-#define FLAG_AUTOOPEN (1u << 1)
-
-/* On-flash layout (148 bytes = 37 words). */
 typedef struct {
-  uint32_t magic;
-  uint32_t interval_ms;
-  uint32_t flags;
-  uint32_t text_len;
-  char     text[FLASH_STORE_TEXT_MAX];   /* 32 words */
-  uint32_t crc;
+  uint32_t    magic;
+  macro_set_t set;
+  uint32_t    crc;
 } persist_t;
 
+/* persist_t must be a multiple of 4 bytes (programmed as words). */
+_Static_assert((sizeof(persist_t) % 4) == 0, "persist_t must be word-aligned sized");
 #define PERSIST_WORDS (sizeof(persist_t) / 4u)
 
 static uint32_t calc_crc(const persist_t *p)
 {
   const uint32_t *w = (const uint32_t *)p;
   uint32_t sum = 0;
-  for (unsigned i = 0; i < PERSIST_WORDS - 1; i++) {   /* all but trailing crc */
-    sum += w[i];
-  }
+  for (unsigned i = 0; i < PERSIST_WORDS - 1; i++) sum += w[i];
   return sum ^ 0xA5A5A5A5u;
 }
 
-bool flash_store_load(flash_store_cfg_t *out)
+bool flash_store_load(macro_set_t *out)
 {
   const persist_t *p = (const persist_t *)STORE_ADDR;
   if (p->magic != STORE_MAGIC) return false;
   if (p->crc != calc_crc(p))   return false;
-
-  uint32_t len = p->text_len;
-  if (len >= FLASH_STORE_TEXT_MAX) len = FLASH_STORE_TEXT_MAX - 1;
-  memcpy(out->text, p->text, len);
-  out->text[len] = '\0';
-  out->interval_ms = p->interval_ms;
-  out->enter    = (p->flags & FLAG_ENTER)    != 0;
-  out->autoopen = (p->flags & FLAG_AUTOOPEN) != 0;
+  if (p->set.count > MACRO_COUNT_MAX) return false;
+  memcpy(out, &p->set, sizeof(*out));
   return true;
 }
 
-bool flash_store_save(const flash_store_cfg_t *in)
+bool flash_store_save(const macro_set_t *in)
 {
-  persist_t pt;
+  static persist_t pt;              /* static: avoid a large stack frame */
   memset(&pt, 0, sizeof(pt));
   pt.magic = STORE_MAGIC;
-  pt.interval_ms = in->interval_ms;
-  pt.flags = (in->enter ? FLAG_ENTER : 0) | (in->autoopen ? FLAG_AUTOOPEN : 0);
-  size_t len = strnlen(in->text, FLASH_STORE_TEXT_MAX - 1);
-  pt.text_len = (uint32_t)len;
-  memcpy(pt.text, in->text, len);
+  memcpy(&pt.set, in, sizeof(pt.set));
   pt.crc = calc_crc(&pt);
 
   HAL_FLASH_Unlock();

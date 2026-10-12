@@ -1,208 +1,59 @@
 /**
- * app.c -- macro typing application.
+ * app.c -- orchestration: holds the macro set, serves the HTTP /api, drives the
+ * macro engine and the status LED. Runs in the single cooperative main loop.
  *
- * Holds the configuration (text, interval, "press Enter"), the running state,
- * the HID emission state machine, the HTTP /api endpoints and the status LED.
- *
- * Everything runs in the single cooperative main-loop thread: app_http_api()
- * is invoked from within tud_task() (USB -> lwIP -> TCP -> HTTP), the same
- * context as app_task(), so no locking is needed.
+ * API (all GET; JSON responses):
+ *   /api/status                         running/emitting/selected/loop/interval/host
+ *   /api/list                           selected/host/loop/interval + macro names
+ *   /api/macro?i=N                      one macro's name + script
+ *   /api/setmacro?i=N&name=..&script=.. create/replace a macro (RAM)
+ *   /api/add                            append a blank macro
+ *   /api/delete?i=N                     remove a macro
+ *   /api/select?i=N                     choose the active macro
+ *   /api/opts?loop=0|1&interval=S&host=0|1|2
+ *   /api/start   /api/stop              run / stop the selected macro
+ *   /api/save                           persist the whole set to flash (USB pauses ~1-2 s)
  */
 #include "app.h"
 #include "board.h"
-#include "keymap.h"
 #include "http_server.h"
 #include "flash_store.h"
+#include "macro.h"
+#include "macro_set.h"
 
 #include "tusb.h"
-#include "class/hid/hid.h"
 
 #include <string.h>
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdint.h>
 
-#define TEXT_MAX        128u
-#define INTERVAL_MIN_MS 50u
-#define INTERVAL_MAX_MS 3600000u   /* 1 hour */
+#define INTERVAL_MIN_MS 20u
+#define INTERVAL_MAX_MS 3600000u
+
+static macro_set_t g_set;
 
 //--------------------------------------------------------------------+
-// configuration + state
+// defaults
 //--------------------------------------------------------------------+
-static char     s_text[TEXT_MAX] = "";
-static uint32_t s_interval_ms = 5000;
-static bool     s_enter = false;
-static bool     s_autoopen = false;   /* optional: open settings page on plug-in */
-
-static bool     s_running = false;
-static uint32_t s_count = 0;
-static uint32_t s_next_ms = 0;
-
-/* HID emission sub-state: a virtual sequence of s_seq_len "key items"
- * (text characters, then optionally Enter); each item = key-down then key-up. */
-static bool     s_emitting = false;
-static size_t   s_seq_len = 0;
-static size_t   s_emit_i = 0;
-static bool     s_emit_press = true;        /* next action: true=down, false=up */
-static bool     s_release_pending = false;  /* flush an all-keys-up report       */
-
-/* Optional auto-open: after enumeration, press Win+R and type the device URL so
- * the host's default browser opens the settings page. Timing-sensitive and
- * best-effort; off by default. */
-typedef enum {
-  AO_OFF = 0, AO_WAIT, AO_WINR_DN, AO_WINR_UP, AO_DLG, AO_TYPE,
-  AO_ENTER_DN, AO_ENTER_UP, AO_DONE
-} ao_state_t;
-static ao_state_t s_ao = AO_OFF;
-static uint32_t   s_ao_t = 0;
-static size_t     s_ao_i = 0;
-static bool       s_ao_press = true;
-static const char AO_URL[] = "http://192.168.7.1";
-#define AO_BOOT_DELAY_MS 8000u   /* let RNDIS driver install + DHCP settle */
-#define AO_DLG_DELAY_MS  1200u   /* wait for the Run dialog to appear       */
-
-//--------------------------------------------------------------------+
-// HID helpers
-//--------------------------------------------------------------------+
-static void hid_send_key(uint8_t modifier, uint8_t keycode)
+static void set_defaults(void)
 {
-  uint8_t kc[6] = { keycode, 0, 0, 0, 0, 0 };
-  tud_hid_keyboard_report(0, modifier, kc);
-}
-
-static void hid_send_release(void)
-{
-  uint8_t kc[6] = { 0, 0, 0, 0, 0, 0 };
-  tud_hid_keyboard_report(0, 0, kc);
+  memset(&g_set, 0, sizeof(g_set));
+  g_set.count = 1;
+  g_set.selected = 0;
+  g_set.host = HOST_WIN;
+  g_set.loop = 0;
+  g_set.interval_ms = 3000;
+  strncpy(g_set.items[0].name, "Ornek", MACRO_NAME_MAX - 1);
+  strncpy(g_set.items[0].script,
+          "# ornek makro\n"
+          "text merhaba\n"
+          "key ENTER\n",
+          MACRO_SCRIPT_MAX - 1);
 }
 
 //--------------------------------------------------------------------+
-// typing state machine
-//--------------------------------------------------------------------+
-static void emission_begin(void)
-{
-  s_emit_i = 0;
-  s_emit_press = true;
-  s_seq_len = strlen(s_text) + (s_enter ? 1u : 0u);
-  s_emitting = (s_seq_len > 0);
-  if (!s_emitting) {           /* nothing to type: still count the "burst" */
-    s_count++;
-    s_next_ms = board_millis() + s_interval_ms;
-  }
-}
-
-/* Called only when s_emitting && tud_hid_ready(). */
-static void emission_step(void)
-{
-  size_t text_len = strlen(s_text);
-
-  if (s_emit_press) {
-    if (s_emit_i >= s_seq_len) {               /* finished the whole sequence */
-      s_emitting = false;
-      s_count++;
-      s_next_ms = board_millis() + s_interval_ms;
-      return;
-    }
-    uint8_t mod, key;
-    bool ok;
-    if (s_emit_i < text_len) {
-      ok = keymap_ascii_to_hid(s_text[s_emit_i], &mod, &key);
-    } else {                                   /* the trailing Enter item */
-      mod = 0; key = HID_KEY_ENTER; ok = true;
-    }
-    if (!ok) { s_emit_i++; return; }           /* skip untypable char */
-    hid_send_key(mod, key);
-    s_emit_press = false;
-  } else {
-    hid_send_release();
-    s_emit_press = true;
-    s_emit_i++;
-  }
-}
-
-static void app_start(void)
-{
-  s_running   = true;
-  s_count     = 0;
-  s_emitting  = false;
-  s_emit_press = true;
-  /* First burst after one interval so there is time to focus the target
-   * window after pressing Start in the browser. */
-  s_next_ms = board_millis() + s_interval_ms;
-}
-
-static void app_stop(void)
-{
-  s_running  = false;
-  s_emitting = false;
-  s_release_pending = true;   /* make sure no key stays logically held */
-}
-
-//--------------------------------------------------------------------+
-// optional auto-open sequence
-//--------------------------------------------------------------------+
-static bool ao_active(void)
-{
-  return s_ao >= AO_WINR_DN && s_ao <= AO_ENTER_UP;
-}
-
-static void ao_type_step(void)
-{
-  size_t len = sizeof(AO_URL) - 1;
-  if (s_ao_press) {
-    if (s_ao_i >= len) { s_ao = AO_ENTER_DN; return; }
-    uint8_t mod, key;
-    if (keymap_ascii_to_hid(AO_URL[s_ao_i], &mod, &key)) {
-      hid_send_key(mod, key);
-      s_ao_press = false;
-    } else {
-      s_ao_i++;
-    }
-  } else {
-    hid_send_release();
-    s_ao_press = true;
-    s_ao_i++;
-  }
-}
-
-static void ao_task(void)
-{
-  if (s_ao == AO_OFF || s_ao == AO_DONE) return;
-  if (!tud_mounted()) return;
-  if (s_running) { s_ao = AO_DONE; return; }   /* user took over: abort */
-
-  uint32_t now = board_millis();
-  bool ready = tud_hid_ready();
-
-  switch (s_ao) {
-    case AO_WAIT:
-      if ((int32_t)(now - s_ao_t) >= 0) s_ao = AO_WINR_DN;
-      break;
-    case AO_WINR_DN:
-      if (ready) { hid_send_key(KEYBOARD_MODIFIER_LEFTGUI, HID_KEY_R); s_ao = AO_WINR_UP; }
-      break;
-    case AO_WINR_UP:
-      if (ready) { hid_send_release(); s_ao_t = now + AO_DLG_DELAY_MS; s_ao = AO_DLG; }
-      break;
-    case AO_DLG:
-      if ((int32_t)(now - s_ao_t) >= 0) { s_ao_i = 0; s_ao_press = true; s_ao = AO_TYPE; }
-      break;
-    case AO_TYPE:
-      if (ready) ao_type_step();
-      break;
-    case AO_ENTER_DN:
-      if (ready) { hid_send_key(0, HID_KEY_ENTER); s_ao = AO_ENTER_UP; }
-      break;
-    case AO_ENTER_UP:
-      if (ready) { hid_send_release(); s_ao = AO_DONE; }
-      break;
-    default:
-      break;
-  }
-}
-
-//--------------------------------------------------------------------+
-// small parsing helpers
+// parsing helpers
 //--------------------------------------------------------------------+
 static int hexval(char c)
 {
@@ -229,7 +80,6 @@ static void url_decode(const char *src, char *dst, size_t cap)
   dst[j] = '\0';
 }
 
-/* Find key in "a=1&b=2" query; URL-decode its value into out. */
 static bool query_get(const char *query, const char *key, char *out, size_t cap)
 {
   if (!query) return false;
@@ -239,7 +89,7 @@ static bool query_get(const char *query, const char *key, char *out, size_t cap)
     const char *amp = strchr(p, '&');
     const char *end = amp ? amp : (p + strlen(p));
     if ((size_t)(end - p) > klen && strncmp(p, key, klen) == 0 && p[klen] == '=') {
-      char raw[512];   /* URL-encoded value (decoded result is shorter) */
+      char raw[MACRO_SCRIPT_MAX * 3];      /* URL-encoded value */
       size_t vlen = (size_t)(end - (p + klen + 1));
       if (vlen > sizeof(raw) - 1) vlen = sizeof(raw) - 1;
       memcpy(raw, p + klen + 1, vlen);
@@ -253,24 +103,33 @@ static bool query_get(const char *query, const char *key, char *out, size_t cap)
   return false;
 }
 
+static bool query_get_int(const char *query, const char *key, long *out)
+{
+  char buf[16];
+  if (!query_get(query, key, buf, sizeof(buf))) return false;
+  long v = 0; size_t i = 0; bool neg = false;
+  if (buf[i] == '-') { neg = true; i++; }
+  bool any = false;
+  for (; buf[i] >= '0' && buf[i] <= '9'; i++) { v = v * 10 + (buf[i] - '0'); any = true; }
+  if (!any) return false;
+  *out = neg ? -v : v;
+  return true;
+}
+
 static uint32_t parse_seconds_ms(const char *s)
 {
-  uint32_t ip = 0, fp = 0;
-  int fdig = 0; bool dot = false, any = false;
+  uint32_t ip = 0, fp = 0; int fdig = 0; bool dot = false, any = false;
   for (; *s; s++) {
     char c = *s;
     if (c >= '0' && c <= '9') {
       any = true;
       if (!dot)            ip = ip * 10 + (uint32_t)(c - '0');
       else if (fdig < 3) { fp = fp * 10 + (uint32_t)(c - '0'); fdig++; }
-    } else if (c == '.' || c == ',') {
-      dot = true;
-    } else {
-      break;
-    }
+    } else if (c == '.' || c == ',') dot = true;
+    else break;
   }
   if (!any) return 0;
-  while (fdig < 3) { fp *= 10; fdig++; }   /* scale fraction to milliseconds */
+  while (fdig < 3) { fp *= 10; fdig++; }
   return ip * 1000 + fp;
 }
 
@@ -279,105 +138,173 @@ static void json_escape(const char *src, char *dst, size_t cap)
   size_t j = 0;
   for (size_t i = 0; src[i] && j + 2 < cap; i++) {
     char c = src[i];
-    if (c == '"' || c == '\\') { dst[j++] = '\\'; dst[j++] = c; }
-    else if ((unsigned char)c >= 0x20)        { dst[j++] = c; }
-    /* else: drop control characters */
+    switch (c) {
+      case '"':  dst[j++] = '\\'; dst[j++] = '"';  break;
+      case '\\': dst[j++] = '\\'; dst[j++] = '\\'; break;
+      case '\n': dst[j++] = '\\'; dst[j++] = 'n';  break;
+      case '\t': dst[j++] = '\\'; dst[j++] = 't';  break;
+      case '\r': break;
+      default:   if ((unsigned char)c >= 0x20) dst[j++] = c; break;
+    }
   }
   dst[j] = '\0';
 }
 
 //--------------------------------------------------------------------+
-// HTTP API  (strong override of the weak default in http_server.c)
+// JSON responses
 //--------------------------------------------------------------------+
+static int fmt_interval(char *buf, size_t cap)
+{
+  uint32_t sec = g_set.interval_ms / 1000, tenths = (g_set.interval_ms % 1000) / 100;
+  return snprintf(buf, cap, "%lu.%lu", (unsigned long)sec, (unsigned long)tenths);
+}
+
 static int status_json(char *out, int cap)
 {
-  char esc[2 * TEXT_MAX + 4];
-  json_escape(s_text, esc, sizeof(esc));
-  uint32_t sec = s_interval_ms / 1000;
-  uint32_t tenths = (s_interval_ms % 1000) / 100;
+  char ivs[16]; fmt_interval(ivs, sizeof(ivs));
+  char name[2 * MACRO_NAME_MAX];
+  name[0] = '\0';
+  if (g_set.count > 0 && g_set.selected < g_set.count)
+    json_escape(g_set.items[g_set.selected].name, name, sizeof(name));
   int n = snprintf(out, (size_t)cap,
-    "{\"running\":%s,\"interval\":%lu.%lu,\"enter\":%s,\"autoopen\":%s,\"count\":%lu,\"text\":\"%s\"}",
-    s_running ? "true" : "false",
-    (unsigned long)sec, (unsigned long)tenths,
-    s_enter ? "true" : "false",
-    s_autoopen ? "true" : "false",
-    (unsigned long)s_count, esc);
-  if (n < 0) return 0;
-  return (n < cap) ? n : (cap - 1);
+    "{\"running\":%s,\"emitting\":%s,\"loop\":%s,\"interval\":%s,\"host\":%u,"
+    "\"selected\":%u,\"count\":%u,\"name\":\"%s\"}",
+    macro_running() ? "true" : "false",
+    macro_is_emitting() ? "true" : "false",
+    g_set.loop ? "true" : "false",
+    ivs, g_set.host, g_set.selected, g_set.count, name);
+  return (n < 0) ? 0 : (n < cap ? n : cap - 1);
 }
 
-static void apply_config(const char *query)
+static int list_json(char *out, int cap)
 {
-  char buf[TEXT_MAX + 32];
-  if (query_get(query, "text", buf, sizeof(buf))) {
-    strncpy(s_text, buf, TEXT_MAX - 1);
-    s_text[TEXT_MAX - 1] = '\0';
+  char ivs[16]; fmt_interval(ivs, sizeof(ivs));
+  int n = snprintf(out, (size_t)cap,
+    "{\"selected\":%u,\"host\":%u,\"loop\":%s,\"interval\":%s,\"count\":%u,\"names\":[",
+    g_set.selected, g_set.host, g_set.loop ? "true" : "false", ivs, g_set.count);
+  for (unsigned i = 0; i < g_set.count && n > 0 && n < cap; i++) {
+    char nm[2 * MACRO_NAME_MAX];
+    json_escape(g_set.items[i].name, nm, sizeof(nm));
+    int m = snprintf(out + n, (size_t)(cap - n), "%s\"%s\"", (i ? "," : ""), nm);
+    if (m < 0) break;
+    n += m;
   }
-  if (query_get(query, "interval", buf, sizeof(buf))) {
-    uint32_t ms = parse_seconds_ms(buf);
-    if (ms < INTERVAL_MIN_MS) ms = INTERVAL_MIN_MS;
-    if (ms > INTERVAL_MAX_MS) ms = INTERVAL_MAX_MS;
-    s_interval_ms = ms;
-  }
-  if (query_get(query, "enter", buf, sizeof(buf))) {
-    s_enter = (buf[0] == '1' || buf[0] == 't' || buf[0] == 'T');
-  }
-  if (query_get(query, "autoopen", buf, sizeof(buf))) {
-    s_autoopen = (buf[0] == '1' || buf[0] == 't' || buf[0] == 'T');
-  }
+  if (n >= 0 && n < cap) n += snprintf(out + n, (size_t)(cap - n), "]}");
+  return (n < 0) ? 0 : (n < cap ? n : cap - 1);
 }
 
-static bool config_save(void)
+static int macro_json(char *out, int cap, unsigned i)
 {
-  flash_store_cfg_t c;
-  memset(&c, 0, sizeof(c));
-  strncpy(c.text, s_text, sizeof(c.text) - 1);
-  c.interval_ms = s_interval_ms;
-  c.enter       = s_enter;
-  c.autoopen    = s_autoopen;
-  return flash_store_save(&c);
+  if (i >= g_set.count) return snprintf(out, (size_t)cap, "{\"i\":-1}");
+  char nm[2 * MACRO_NAME_MAX];
+  char sc[2 * MACRO_SCRIPT_MAX];
+  json_escape(g_set.items[i].name, nm, sizeof(nm));
+  json_escape(g_set.items[i].script, sc, sizeof(sc));
+  int n = snprintf(out, (size_t)cap, "{\"i\":%u,\"name\":\"%s\",\"script\":\"%s\"}", i, nm, sc);
+  return (n < 0) ? 0 : (n < cap ? n : cap - 1);
 }
 
+//--------------------------------------------------------------------+
+// run control
+//--------------------------------------------------------------------+
+static void do_start(void)
+{
+  if (g_set.count == 0 || g_set.selected >= g_set.count) return;
+  macro_start(g_set.items[g_set.selected].script, g_set.loop != 0,
+              g_set.interval_ms, (host_profile_t)g_set.host);
+}
+
+//--------------------------------------------------------------------+
+// HTTP API
+//--------------------------------------------------------------------+
 int app_http_api(const char *method, const char *path, const char *query,
                  char *body, int body_cap)
 {
   (void)method;
-  if (strcmp(path, "/api/status") == 0) {
+
+  if (strcmp(path, "/api/status") == 0) return status_json(body, body_cap);
+  if (strcmp(path, "/api/list")   == 0) return list_json(body, body_cap);
+
+  if (strcmp(path, "/api/macro") == 0) {
+    long i = 0; query_get_int(query, "i", &i);
+    return macro_json(body, body_cap, (unsigned)(i < 0 ? 0 : i));
+  }
+
+  if (strcmp(path, "/api/setmacro") == 0) {
+    long i = -1;
+    if (query_get_int(query, "i", &i) && i >= 0 && i <= g_set.count && i < MACRO_COUNT_MAX) {
+      if ((unsigned)i == g_set.count) g_set.count++;   /* append */
+      char buf[MACRO_SCRIPT_MAX];
+      if (query_get(query, "name", buf, sizeof(buf))) {
+        strncpy(g_set.items[i].name, buf, MACRO_NAME_MAX - 1);
+        g_set.items[i].name[MACRO_NAME_MAX - 1] = '\0';
+      }
+      if (query_get(query, "script", buf, sizeof(buf))) {
+        strncpy(g_set.items[i].script, buf, MACRO_SCRIPT_MAX - 1);
+        g_set.items[i].script[MACRO_SCRIPT_MAX - 1] = '\0';
+      }
+    }
+    return list_json(body, body_cap);
+  }
+
+  if (strcmp(path, "/api/add") == 0) {
+    if (g_set.count < MACRO_COUNT_MAX) {
+      unsigned i = g_set.count++;
+      memset(&g_set.items[i], 0, sizeof(g_set.items[i]));
+      snprintf(g_set.items[i].name, MACRO_NAME_MAX, "Makro %u", i + 1);
+      g_set.selected = i;
+    }
+    return list_json(body, body_cap);
+  }
+
+  if (strcmp(path, "/api/delete") == 0) {
+    long i = -1;
+    if (query_get_int(query, "i", &i) && i >= 0 && (unsigned)i < g_set.count) {
+      for (unsigned j = (unsigned)i; j + 1 < g_set.count; j++) g_set.items[j] = g_set.items[j + 1];
+      g_set.count--;
+      if (g_set.selected >= g_set.count) g_set.selected = (g_set.count > 0) ? g_set.count - 1 : 0;
+    }
+    return list_json(body, body_cap);
+  }
+
+  if (strcmp(path, "/api/select") == 0) {
+    long i = -1;
+    if (query_get_int(query, "i", &i) && i >= 0 && (unsigned)i < g_set.count) g_set.selected = (uint8_t)i;
     return status_json(body, body_cap);
   }
-  if (strcmp(path, "/api/stop") == 0) {
-    app_stop();
+
+  if (strcmp(path, "/api/opts") == 0) {
+    long v;
+    if (query_get_int(query, "loop", &v)) g_set.loop = (v != 0);
+    if (query_get_int(query, "host", &v) && v >= 0 && v <= 2) g_set.host = (uint8_t)v;
+    char buf[24];
+    if (query_get(query, "interval", buf, sizeof(buf))) {
+      uint32_t ms = parse_seconds_ms(buf);
+      if (ms < INTERVAL_MIN_MS) ms = INTERVAL_MIN_MS;
+      if (ms > INTERVAL_MAX_MS) ms = INTERVAL_MAX_MS;
+      g_set.interval_ms = ms;
+    }
     return status_json(body, body_cap);
   }
-  if (strcmp(path, "/api/config") == 0) {
-    apply_config(query);
-    return status_json(body, body_cap);
-  }
-  if (strcmp(path, "/api/save") == 0) {
-    apply_config(query);
-    config_save();            /* persist to flash (brief USB pause) */
-    return status_json(body, body_cap);
-  }
-  if (strcmp(path, "/api/start") == 0) {
-    apply_config(query);
-    app_start();
-    return status_json(body, body_cap);
-  }
-  return -1;   /* unknown -> 404 */
+
+  if (strcmp(path, "/api/start") == 0) { do_start();   return status_json(body, body_cap); }
+  if (strcmp(path, "/api/stop")  == 0) { macro_stop(); return status_json(body, body_cap); }
+  if (strcmp(path, "/api/save")  == 0) { flash_store_save(&g_set); return status_json(body, body_cap); }
+
+  return -1;
 }
 
 //--------------------------------------------------------------------+
-// LED status
+// status LED
 //--------------------------------------------------------------------+
 static void led_update(void)
 {
   uint32_t now = board_millis();
   bool on;
-  if (!tud_mounted())        on = (now / 120) & 1;      /* fast blink: no host  */
-  else if (ao_active())      on = (now / 60) & 1;       /* auto-open: flicker   */
-  else if (!s_running)       on = (now % 2000) < 40;    /* idle heartbeat blip  */
-  else if (s_emitting)       on = (now / 60) & 1;       /* typing: flicker      */
-  else                       on = true;                 /* running, waiting     */
+  if (!tud_mounted())           on = (now / 120) & 1;     /* fast blink: no host */
+  else if (macro_is_emitting()) on = (now / 60) & 1;      /* typing: flicker     */
+  else if (macro_running())     on = true;                /* running, waiting    */
+  else                          on = (now % 2000) < 40;   /* idle heartbeat blip */
   board_led_write(on);
 }
 
@@ -386,62 +313,13 @@ static void led_update(void)
 //--------------------------------------------------------------------+
 void app_init(void)
 {
-  /* Safe defaults; nothing types until Start from the web UI. */
-  s_text[0] = '\0';
-  s_interval_ms = 5000;
-  s_enter = false;
-  s_autoopen = false;
-  s_running = false;
-
-  /* Restore last saved config from flash, if any (does NOT auto-start). */
-  flash_store_cfg_t c;
-  if (flash_store_load(&c)) {
-    strncpy(s_text, c.text, TEXT_MAX - 1);
-    s_text[TEXT_MAX - 1] = '\0';
-    uint32_t ms = c.interval_ms;
-    if (ms < INTERVAL_MIN_MS) ms = INTERVAL_MIN_MS;
-    if (ms > INTERVAL_MAX_MS) ms = INTERVAL_MAX_MS;
-    s_interval_ms = ms;
-    s_enter = c.enter;
-    s_autoopen = c.autoopen;
-  }
+  if (!flash_store_load(&g_set)) set_defaults();
+  if (g_set.count > MACRO_COUNT_MAX) set_defaults();
+  if (g_set.selected >= g_set.count) g_set.selected = 0;
 }
 
 void app_task(void)
 {
-  if (s_release_pending && tud_mounted() && tud_hid_ready()) {
-    hid_send_release();
-    s_release_pending = false;
-  }
-
-  if (s_running && tud_mounted()) {
-    if (!s_emitting && (int32_t)(board_millis() - s_next_ms) >= 0) {
-      emission_begin();
-    }
-    if (s_emitting && tud_hid_ready()) {
-      emission_step();
-    }
-  } else {
-    ao_task();   /* optional auto-open runs only while not typing */
-  }
-
+  macro_task();
   led_update();
-}
-
-//--------------------------------------------------------------------+
-// USB mount callbacks (arm/disarm auto-open)
-//--------------------------------------------------------------------+
-void tud_mount_cb(void)
-{
-  if (s_autoopen) {
-    s_ao = AO_WAIT;
-    s_ao_t = board_millis() + AO_BOOT_DELAY_MS;
-    s_ao_i = 0;
-    s_ao_press = true;
-  }
-}
-
-void tud_umount_cb(void)
-{
-  s_ao = AO_OFF;
 }

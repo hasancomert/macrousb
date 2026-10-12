@@ -8,128 +8,206 @@
   :root{--bg:#0f1221;--card:#1a1f38;--fg:#e8ecff;--muted:#9aa3c7;--acc:#5b8cff;--ok:#36d399;--warn:#fbbd23;--err:#f87272;--line:#2a3157}
   *{box-sizing:border-box}
   body{margin:0;font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--fg)}
-  .wrap{max-width:560px;margin:0 auto;padding:24px 16px}
-  h1{font-size:22px;margin:0 0 4px} .sub{color:var(--muted);margin:0 0 20px;font-size:13px}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:16px}
-  label{display:block;font-size:13px;color:var(--muted);margin:12px 0 4px}
-  input[type=text],input[type=number]{width:100%;padding:10px 12px;border-radius:9px;border:1px solid var(--line);background:#11152b;color:var(--fg);font-size:15px}
-  .row{display:flex;gap:12px}.row>div{flex:1}
-  .chk{display:flex;align-items:center;gap:8px;margin-top:14px;color:var(--fg)}
-  .btns{display:flex;gap:10px;margin-top:18px}
+  .wrap{max-width:620px;margin:0 auto;padding:22px 16px}
+  h1{font-size:22px;margin:0 0 2px}.sub{color:var(--muted);margin:0 0 18px;font-size:13px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+  label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}
+  input[type=text],input[type=number],select,textarea{width:100%;padding:10px 12px;border-radius:9px;border:1px solid var(--line);background:#11152b;color:var(--fg);font-size:15px}
+  textarea{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;resize:vertical;min-height:150px}
+  .row{display:flex;gap:12px}.row>*{flex:1}
+  .chk{display:flex;align-items:center;gap:8px;margin-top:12px;color:var(--fg)}
+  .chk input{width:auto}
+  .btns{display:flex;gap:10px;margin-top:12px}
   button{flex:1;padding:11px;border:0;border-radius:9px;font-size:15px;font-weight:600;cursor:pointer;color:#fff}
   .start{background:var(--ok);color:#06231a}.stop{background:var(--err)}.save{background:#3b4473}
-  button:disabled{opacity:.5;cursor:not-allowed}
+  button:disabled{opacity:.45;cursor:not-allowed}
   .status{display:flex;align-items:center;gap:10px;font-size:14px}
   .dot{width:11px;height:11px;border-radius:50%;background:var(--muted);flex:none}
-  .dot.run{background:var(--ok);box-shadow:0 0 8px var(--ok)}.dot.idle{background:var(--muted)}
-  .banner{border-radius:10px;padding:10px 12px;font-size:13px;margin-bottom:16px;display:none}
+  .dot.run{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+  .banner{border-radius:10px;padding:10px 12px;font-size:13px;margin-bottom:14px;display:none}
   .banner.warn{display:block;background:#2a2410;border:1px solid #5a4a12;color:var(--warn)}
   .banner.err{display:block;background:#2a1414;border:1px solid #5a1f1f;color:var(--err)}
   .banner.ok{display:block;background:#10241a;border:1px solid #1f5a3a;color:var(--ok)}
   code{background:#11152b;padding:1px 6px;border-radius:5px;color:var(--acc)}
-  .foot{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
+  details{margin-top:10px}summary{cursor:pointer;color:var(--muted);font-size:13px}
+  details pre{white-space:pre-wrap;background:#11152b;border:1px solid var(--line);border-radius:9px;padding:10px;font-size:12px;color:var(--muted);margin:8px 0 0}
+  .foot{color:var(--muted);font-size:12px;text-align:center;margin-top:6px}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>MacroUSB</h1>
-  <p class="sub">Cihaz-üstü klavye otomasyonu · <code id="url">http://192.168.7.1/</code></p>
+  <p class="sub">Cihaz-üstü makro klavye + fare · <code id="url">http://192.168.7.1/</code></p>
 
   <div id="banner" class="banner"></div>
 
   <div class="card">
-    <div class="status"><span id="dot" class="dot idle"></span><span id="stxt">Durum okunuyor…</span></div>
+    <div class="status"><span id="dot" class="dot"></span><span id="stxt">Durum okunuyor…</span></div>
   </div>
 
   <div class="card">
-    <label for="text">Yazılacak metin</label>
-    <input id="text" type="text" placeholder="ör. w24rafsfe" autocomplete="off" spellcheck="false">
-    <div class="row">
-      <div>
-        <label for="interval">Tekrar aralığı (saniye)</label>
-        <input id="interval" type="number" min="0.1" step="0.1" value="5">
-      </div>
+    <label for="sel">Makro seç</label>
+    <select id="sel"></select>
+    <div class="btns">
+      <button id="btnNew" class="save">+ Yeni</button>
+      <button id="btnDel" class="stop">Sil</button>
     </div>
-    <label class="chk"><input id="enter" type="checkbox"> Her tekrardan sonra Enter</label>
-    <label class="chk"><input id="autoopen" type="checkbox"> Takınca bu sayfayı otomatik aç (deneysel)</label>
+  </div>
+
+  <div class="card">
+    <label for="name">Ad</label>
+    <input id="name" type="text" maxlength="23" autocomplete="off">
+    <label for="script">Makro betiği</label>
+    <textarea id="script" spellcheck="false" placeholder="launch app notepad&#10;wait 1500&#10;text merhaba&#10;key ENTER"></textarea>
+    <details>
+      <summary>Komut listesi</summary>
+      <pre>launch url &lt;adres&gt;      varsayılan tarayıcıda aç
+launch app &lt;komut&gt;      uygulama/komut çalıştır
+text &lt;yazı&gt;             düz metin yaz (US QWERTY)
+key &lt;AD&gt;               ENTER TAB ESC SPACE LEFT RIGHT UP DOWN
+                        HOME END PAGEUP PAGEDOWN DELETE BACKSPACE
+                        INSERT F1..F12  (veya tek karakter)
+combo &lt;MOD&gt;+&lt;TUŞ&gt;      CTRL+C · CTRL+SHIFT+T · ALT+F4
+                        (MOD: CTRL ALT SHIFT GUI/WIN/SUPER)
+wait &lt;ms&gt;               bekle (milisaniye)
+mouse move &lt;dx&gt; &lt;dy&gt;    fareyi göreli oynat (piksel, +/-)
+mouse click &lt;left|right|middle&gt;
+# ...                   yorum satırı</pre>
+    </details>
+    <div class="btns">
+      <button id="btnApply" class="save">Değişiklikleri uygula</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <label for="host">Host (başlatma yöntemi)</label>
+    <select id="host">
+      <option value="0">Windows — Çalıştır (Win+R)</option>
+      <option value="1">Linux — KDE/XFCE (Alt+F2 / KRunner)</option>
+      <option value="2">Linux — GNOME (Süper tuşu)</option>
+    </select>
+    <label class="chk"><input id="loop" type="checkbox"> Döngü — aralıkla tekrarla</label>
+    <label for="interval">Döngü aralığı (saniye)</label>
+    <input id="interval" type="number" min="0.1" step="0.1" value="3">
+  </div>
+
+  <div class="card">
     <div class="btns">
       <button id="btnStart" class="start">Başlat</button>
       <button id="btnStop"  class="stop">Durdur</button>
     </div>
     <div class="btns">
-      <button id="btnSave" class="save">Ayarları cihaza kaydet (flash)</button>
+      <button id="btnSave" class="save">Cihaza kaydet (flash)</button>
     </div>
   </div>
 
-  <p class="foot">Başlat’a bastıktan sonra yazının gideceği pencereye tıklayın; ilk tuş bir aralık (interval) sonra basılır.<br>Klavye düzeni US QWERTY varsayılır · açılışta otomatik başlamaz.</p>
+  <p class="foot">Başlat’tan sonra makronun gideceği pencereye geçmek için <code>wait</code> kullan.<br>
+    US QWERTY · cihaz ekranı görmez (zamanlama sabit) · açılışta otomatik başlamaz.</p>
 </div>
 
 <script>
 const $ = s => document.querySelector(s);
-const banner = (cls, msg) => { const b=$('#banner'); b.className='banner '+cls; b.textContent=msg; };
-let apiOk = false;
+let sel = 0, count = 0, running = false;
 
-async function api(path, opts){
-  const r = await fetch(path, opts);
+function banner(cls,msg){const b=$('#banner');b.className='banner '+cls;b.textContent=msg;}
+function clearBanner(){$('#banner').className='banner';}
+
+async function api(path){
+  const r = await fetch(path);
   if(!r.ok) throw new Error('HTTP '+r.status);
   return r.json();
 }
+const enc = s => encodeURIComponent(s);
 
-function render(st){
-  apiOk = true;
-  $('#banner').className = 'banner';
-  const run = !!st.running;
-  $('#dot').className = 'dot ' + (run ? 'run' : 'idle');
-  $('#stxt').textContent = run
-    ? `Çalışıyor · her ${st.interval}s · ${st.count ?? 0} tekrar`
-    : 'Boşta (durduruldu)';
-  if(typeof st.text === 'string' && document.activeElement !== $('#text')) $('#text').value = st.text;
-  if(typeof st.interval === 'number' && document.activeElement !== $('#interval')) $('#interval').value = st.interval;
-  if(typeof st.enter === 'boolean') $('#enter').checked = st.enter;
-  if(typeof st.autoopen === 'boolean' && document.activeElement !== $('#autoopen')) $('#autoopen').checked = st.autoopen;
-  $('#btnStart').disabled = run;
-  $('#btnStop').disabled  = !run;
+function applyListMeta(d){
+  sel = d.selected|0; count = d.count|0;
+  $('#host').value = String(d.host);
+  $('#loop').checked = !!d.loop;
+  if(document.activeElement !== $('#interval')) $('#interval').value = d.interval;
+  const s = $('#sel'); s.innerHTML='';
+  (d.names||[]).forEach((n,i)=>{const o=document.createElement('option');o.value=i;o.textContent=(n||('Makro '+(i+1)));s.appendChild(o);});
+  s.value = String(sel);
+  $('#btnDel').disabled = count<=0;
 }
 
-function params(){
-  return new URLSearchParams({
-    text: $('#text').value,
-    interval: $('#interval').value,
-    enter: $('#enter').checked ? '1':'0',
-    autoopen: $('#autoopen').checked ? '1':'0'
-  }).toString();
+async function loadMacro(i){
+  if(count<=0){ $('#name').value=''; $('#script').value=''; return; }
+  const m = await api('/api/macro?i='+i);
+  if(m.i>=0){ $('#name').value=m.name||''; $('#script').value=m.script||''; }
 }
 
-async function refresh(){
-  try { render(await api('/api/status')); }
-  catch(e){
-    apiOk = false;
-    $('#dot').className='dot idle';
-    $('#stxt').textContent='Cihaz çalışıyor (web sunucusu aktif)';
-    banner('warn','Ayar API’sine ulaşılamadı. Web sunucusu çalışıyor; güncel firmware ile yeniden deneyin.');
-    $('#btnStart').disabled=true; $('#btnStop').disabled=true;
-  }
+async function loadAll(){
+  try{
+    applyListMeta(await api('/api/list'));
+    await loadMacro(sel);
+    clearBanner();
+  }catch(e){ banner('err','Cihaza ulaşılamadı: '+e.message); }
 }
+
+async function applyEditor(){
+  if(count<=0) return;
+  const q='/api/setmacro?i='+sel+'&name='+enc($('#name').value)+'&script='+enc($('#script').value);
+  applyListMeta(await api(q));
+}
+
+async function refreshStatus(){
+  try{
+    const st = await api('/api/status');
+    running = !!st.running;
+    $('#dot').className = 'dot'+(running?' run':'');
+    $('#stxt').textContent = running
+      ? (st.emitting ? 'Çalışıyor — makro gönderiliyor…' : 'Çalışıyor') + (st.name?(' · '+st.name):'')
+      : 'Boşta' + (st.name?(' · seçili: '+st.name):'');
+    $('#btnStart').disabled = running || (st.count|0)<=0;
+    $('#btnStop').disabled  = !running;
+  }catch(e){ /* keep last state */ }
+}
+
+$('#sel').onchange = async () => {
+  sel = $('#sel').value|0;
+  try{ await api('/api/select?i='+sel); await loadMacro(sel); }
+  catch(e){ banner('err',e.message); }
+};
+$('#btnNew').onclick = async () => {
+  try{ applyListMeta(await api('/api/add')); $('#sel').value=String(sel); await loadMacro(sel); $('#name').focus(); }
+  catch(e){ banner('err',e.message); }
+};
+$('#btnDel').onclick = async () => {
+  if(count<=0) return;
+  try{ applyListMeta(await api('/api/delete?i='+sel)); $('#sel').value=String(sel); await loadMacro(sel); }
+  catch(e){ banner('err',e.message); }
+};
+$('#btnApply').onclick = async () => {
+  try{ await applyEditor(); banner('ok','Uygulandı (RAM). Kalıcı olması için “Cihaza kaydet”.'); }
+  catch(e){ banner('err',e.message); }
+};
+async function pushOpts(){
+  try{ await api('/api/opts?loop='+($('#loop').checked?1:0)+'&interval='+enc($('#interval').value)+'&host='+$('#host').value); }
+  catch(e){}
+}
+$('#host').onchange = pushOpts;
+$('#loop').onchange = pushOpts;
+$('#interval').onchange = pushOpts;
 
 $('#btnStart').onclick = async () => {
-  try { render(await api('/api/start?'+params())); }
+  try{ await applyEditor(); await pushOpts(); await api('/api/select?i='+sel); await api('/api/start'); await refreshStatus(); clearBanner(); }
   catch(e){ banner('err','Başlatılamadı: '+e.message); }
 };
 $('#btnStop').onclick = async () => {
-  try { render(await api('/api/stop')); }
+  try{ await api('/api/stop'); await refreshStatus(); }
   catch(e){ banner('err','Durdurulamadı: '+e.message); }
 };
 $('#btnSave').onclick = async () => {
   $('#btnSave').disabled = true;
-  banner('warn','Kaydediliyor… (flash yazılırken USB kısa süre duraklayabilir)');
-  try { render(await api('/api/save?'+params())); banner('ok','Ayarlar cihaza kaydedildi.'); }
+  banner('warn','Kaydediliyor… flash yazılırken USB ~1-2 sn duraklayabilir.');
+  try{ await applyEditor(); await pushOpts(); await api('/api/save'); banner('ok','Cihaza kaydedildi (tak-çıkar sonrası hatırlanır).'); }
   catch(e){ banner('err','Kaydedilemedi: '+e.message); }
-  finally { $('#btnSave').disabled = false; }
+  finally{ $('#btnSave').disabled = false; }
 };
 
 $('#url').textContent = location.origin + '/';
-refresh();
-setInterval(refresh, 1500);
+loadAll().then(refreshStatus);
+setInterval(refreshStatus, 2000);
 </script>
 </body>
 </html>
