@@ -82,7 +82,7 @@ static bool     s_press;          /* key down/up phase */
 static uint8_t  s_phase;          /* launch phases */
 static int16_t  s_mx, s_my;       /* remaining mouse move */
 
-static bool     s_release_pending;
+static uint8_t  s_release;        /* 2 = release keyboard next, 1 = release mouse next */
 
 //--------------------------------------------------------------------+
 // parsing helpers
@@ -100,12 +100,16 @@ static bool itok_eq(const char *tok, size_t len, const char *name)
   return true;
 }
 
+/* Parse an unsigned integer, saturating at 1 hour so a `wait` value can never
+ * overflow uint32 or break the signed-difference timer comparison. */
+#define PARSE_U32_MAX 3600000u
 static uint32_t parse_u32(const char *s, size_t len)
 {
   uint32_t v = 0;
   for (size_t i = 0; i < len; i++) {
     if (s[i] < '0' || s[i] > '9') break;
     v = v * 10 + (uint32_t)(s[i] - '0');
+    if (v > PARSE_U32_MAX) { v = PARSE_U32_MAX; }
   }
   return v;
 }
@@ -125,8 +129,8 @@ static int16_t parse_i16(const char *s, size_t len)
   return (int16_t)v;
 }
 
-/* Map a key name (or single character) to a HID keycode. */
-static bool key_name(const char *s, size_t len, uint8_t *keycode)
+/* Map a key name (or single character) to a HID modifier + keycode. */
+static bool key_name(const char *s, size_t len, uint8_t *modifier, uint8_t *keycode)
 {
   static const struct { const char *n; uint8_t k; } tbl[] = {
     {"ENTER", HID_KEY_ENTER}, {"RETURN", HID_KEY_ENTER}, {"TAB", HID_KEY_TAB},
@@ -142,17 +146,17 @@ static bool key_name(const char *s, size_t len, uint8_t *keycode)
     {"CAPSLOCK", HID_KEY_CAPS_LOCK},
   };
   for (unsigned i = 0; i < sizeof(tbl) / sizeof(tbl[0]); i++) {
-    if (itok_eq(s, len, tbl[i].n)) { *keycode = tbl[i].k; return true; }
+    if (itok_eq(s, len, tbl[i].n)) { *modifier = 0; *keycode = tbl[i].k; return true; }
   }
   /* F1..F12 */
   if (len >= 2 && len <= 3 && (s[0] == 'F' || s[0] == 'f')) {
     uint32_t n = parse_u32(s + 1, len - 1);
-    if (n >= 1 && n <= 12) { *keycode = (uint8_t)(HID_KEY_F1 + (n - 1)); return true; }
+    if (n >= 1 && n <= 12) { *modifier = 0; *keycode = (uint8_t)(HID_KEY_F1 + (n - 1)); return true; }
   }
-  /* single printable character */
+  /* single printable character (keeps Shift for uppercase/shifted symbols) */
   if (len == 1) {
     uint8_t m, k;
-    if (keymap_ascii_to_hid(s[0], &m, &k)) { *keycode = k; return true; }
+    if (keymap_ascii_to_hid(s[0], &m, &k)) { *modifier = m; *keycode = k; return true; }
   }
   return false;
 }
@@ -177,9 +181,9 @@ static bool parse_combo(const char *s, size_t len, uint8_t *mod, uint8_t *key)
       const char *tok = s + start;
       size_t tlen = i - start;
       if (i == len) {                 /* final token = the key */
-        uint8_t k;
-        if (!key_name(tok, tlen, &k)) return false;
-        *key = k; *mod = m;
+        uint8_t km, k;
+        if (!key_name(tok, tlen, &km, &k)) return false;
+        *key = k; *mod = (uint8_t)(m | km);
         return true;
       } else {
         uint8_t mm = mod_name(tok, tlen);
@@ -254,8 +258,8 @@ static bool parse_next_action(void)
       s_act.type = A_WAIT; s_act.ms = parse_u32(rest, rlen); return true;
     }
     if (itok_eq(cmd, clen, "key")) {
-      uint8_t k;
-      if (key_name(rest, rlen, &k)) { s_act.type = A_KEY; s_act.modifier = 0; s_act.keycode = k; return true; }
+      uint8_t m, k;
+      if (key_name(rest, rlen, &m, &k)) { s_act.type = A_KEY; s_act.modifier = m; s_act.keycode = k; return true; }
       continue;
     }
     if (itok_eq(cmd, clen, "combo")) {
@@ -407,7 +411,7 @@ void macro_start(const char *script, bool loop, uint32_t interval_ms, host_profi
   s_between = false;
   s_have_act = false;
   s_waiting = false;
-  s_release_pending = false;
+  s_release = 0;
 }
 
 void macro_stop(void)
@@ -416,7 +420,7 @@ void macro_stop(void)
   s_have_act = false;
   s_waiting = false;
   s_between = false;
-  s_release_pending = true;   /* release held keys/buttons */
+  s_release = 2;   /* release held keys, then mouse (separate HID reports) */
 }
 
 bool macro_running(void) { return s_running; }
@@ -428,10 +432,11 @@ bool macro_is_emitting(void)
 
 void macro_task(void)
 {
-  if (s_release_pending && tud_mounted() && tud_hid_ready()) {
-    hid_key_release();
-    hid_mouse(0, 0, 0);
-    s_release_pending = false;
+  /* Release held inputs across two HID-ready cycles: keyboard and mouse share
+   * one endpoint, so they cannot be sent back-to-back. */
+  if (s_release && tud_mounted() && tud_hid_ready()) {
+    if (s_release == 2) { hid_key_release(); s_release = 1; }
+    else                { hid_mouse(0, 0, 0); s_release = 0; }
   }
 
   if (!s_running || !tud_mounted()) return;

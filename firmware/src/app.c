@@ -233,7 +233,10 @@ int app_http_api(const char *method, const char *path, const char *query,
   if (strcmp(path, "/api/setmacro") == 0) {
     long i = -1;
     if (query_get_int(query, "i", &i) && i >= 0 && i <= g_set.count && i < MACRO_COUNT_MAX) {
-      if ((unsigned)i == g_set.count) g_set.count++;   /* append */
+      if ((unsigned)i == g_set.count) {                /* append: clear the new slot */
+        memset(&g_set.items[i], 0, sizeof(g_set.items[i]));
+        g_set.count++;
+      }
       char buf[MACRO_SCRIPT_MAX];
       if (query_get(query, "name", buf, sizeof(buf))) {
         strncpy(g_set.items[i].name, buf, MACRO_NAME_MAX - 1);

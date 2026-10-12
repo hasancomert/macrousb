@@ -42,7 +42,7 @@ enum {
 enum {
   ITF_NUM_NET = 0,     /* CDC control (RNDIS/ECM) */
   ITF_NUM_NET_DATA,    /* CDC data               */
-  ITF_NUM_HID,         /* HID keyboard           */
+  ITF_NUM_HID,         /* HID keyboard + mouse   */
   ITF_NUM_TOTAL
 };
 
@@ -78,7 +78,7 @@ uint8_t const *tud_descriptor_device_cb(void)
 }
 
 //--------------------------------------------------------------------+
-// HID report descriptor (plain keyboard, no report id)
+// HID report descriptor (keyboard + mouse, each with its own report ID)
 //--------------------------------------------------------------------+
 static uint8_t const desc_hid_report[] = {
   TUD_HID_REPORT_DESC_KEYBOARD(HID_REPORT_ID(REPORT_ID_KEYBOARD)),

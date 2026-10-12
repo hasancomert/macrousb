@@ -44,24 +44,27 @@ int app_http_api(const char *method, const char *path, const char *query,
 //--------------------------------------------------------------------+
 // connection teardown
 //--------------------------------------------------------------------+
-static void http_close(http_conn_t *c)
+/* Tear the connection down and free its state. Returns ERR_OK if it closed
+ * gracefully, or ERR_ABRT if it had to be aborted -- in which case the caller
+ * (a TCP callback) MUST return ERR_ABRT so lwIP does not touch the freed pcb. */
+static err_t http_close(http_conn_t *c)
 {
   struct tcp_pcb *pcb = c->pcb;
   tcp_arg(pcb, NULL);
   tcp_recv(pcb, NULL);
   tcp_sent(pcb, NULL);
-  tcp_err(pcb, NULL);
   tcp_poll(pcb, NULL, 0);
+  tcp_err(pcb, NULL);
   mem_free(c);
-  if (tcp_close(pcb) != ERR_OK) {
-    tcp_abort(pcb);
-  }
+  if (tcp_close(pcb) == ERR_OK) return ERR_OK;
+  tcp_abort(pcb);
+  return ERR_ABRT;
 }
 
 //--------------------------------------------------------------------+
 // push queued response segments into the TCP send buffer
 //--------------------------------------------------------------------+
-static void http_flush(http_conn_t *c)
+static err_t http_flush(http_conn_t *c)
 {
   struct tcp_pcb *pcb = c->pcb;
 
@@ -70,7 +73,7 @@ static void http_flush(http_conn_t *c)
     if (c->segoff >= total) { c->segidx++; c->segoff = 0; continue; }
 
     uint16_t sb = tcp_sndbuf(pcb);
-    if (sb == 0) { tcp_output(pcb); return; }   /* wait for sent_cb */
+    if (sb == 0) { tcp_output(pcb); return ERR_OK; }   /* alive; wait for sent_cb */
 
     uint32_t rem = total - c->segoff;
     uint16_t n   = (rem < sb) ? (uint16_t)rem : sb;
@@ -83,18 +86,28 @@ static void http_flush(http_conn_t *c)
     if (more) flag |= TCP_WRITE_FLAG_MORE;
 
     err_t e = tcp_write(pcb, c->seg[c->segidx] + c->segoff, n, flag);
-    if (e == ERR_MEM) { tcp_output(pcb); return; }  /* retry in sent_cb */
-    if (e != ERR_OK)  { http_close(c); return; }
+    if (e == ERR_MEM) { tcp_output(pcb); return ERR_OK; }  /* alive; retry in sent_cb */
+    if (e != ERR_OK)  { return http_close(c); }
     c->segoff += n;
   }
 
   tcp_output(pcb);
-  http_close(c);   /* everything queued; headers copied, body is static */
+  return http_close(c);   /* everything queued; headers copied, body is static */
 }
 
 //--------------------------------------------------------------------+
 // build responses
 //--------------------------------------------------------------------+
+/* Point seg[0] at the composed header buffer, clamping the length to what
+ * actually fits (snprintf returns the would-be length, which can exceed buf). */
+static void set_header_seg(http_conn_t *c, int n)
+{
+  if (n < 0) n = 0;
+  if (n > (int)sizeof(c->buf) - 1) n = (int)sizeof(c->buf) - 1;
+  c->seg[0] = c->buf;
+  c->seglen[0] = (uint32_t)n;
+}
+
 static void resp_page(http_conn_t *c)
 {
   int n = snprintf(c->buf, sizeof(c->buf),
@@ -103,7 +116,7 @@ static void resp_page(http_conn_t *c)
     "Content-Length: %u\r\n"
     "Connection: close\r\n\r\n",
     (unsigned)INDEX_HTML_LEN);
-  c->seg[0] = c->buf;        c->seglen[0] = (uint32_t)n;
+  set_header_seg(c, n);
   c->seg[1] = INDEX_HTML;    c->seglen[1] = INDEX_HTML_LEN;
 }
 
@@ -116,7 +129,7 @@ static void resp_simple(http_conn_t *c, const char *status, const char *ctype,
     "Content-Length: %u\r\n"
     "Connection: close\r\n\r\n%s",
     status, ctype, (unsigned)strlen(body), body);
-  c->seg[0] = c->buf; c->seglen[0] = (uint32_t)n;
+  set_header_seg(c, n);
   c->seg[1] = NULL;   c->seglen[1] = 0;
 }
 
@@ -129,7 +142,7 @@ static void resp_json(http_conn_t *c, const char *json, int json_len)
     "Cache-Control: no-store\r\n"
     "Connection: close\r\n\r\n%.*s",
     json_len, json_len, json);
-  c->seg[0] = c->buf; c->seglen[0] = (uint32_t)n;
+  set_header_seg(c, n);
   c->seg[1] = NULL;   c->seglen[1] = 0;
 }
 
@@ -180,8 +193,8 @@ static err_t on_sent(void *arg, struct tcp_pcb *pcb, u16_t len)
 {
   (void)pcb; (void)len;
   http_conn_t *c = (http_conn_t *)arg;
-  if (c) http_flush(c);
-  return ERR_OK;
+  if (!c) return ERR_OK;
+  return http_flush(c);
 }
 
 static err_t on_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
@@ -189,7 +202,7 @@ static err_t on_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
   http_conn_t *c = (http_conn_t *)arg;
   if (!c) { if (p) pbuf_free(p); return ERR_OK; }
 
-  if (p == NULL) { http_close(c); return ERR_OK; }       /* peer closed */
+  if (p == NULL) return http_close(c);                   /* peer closed */
   if (err != ERR_OK) { pbuf_free(p); return ERR_OK; }
 
   tcp_recved(pcb, p->tot_len);
@@ -198,7 +211,7 @@ static err_t on_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
     uint16_t space = (uint16_t)(REQ_MAX - 1 - c->req_len);
     if (space > 0) {
       uint16_t n = pbuf_copy_partial(p, c->req + c->req_len, space, 0);
-      c->req_len += n;
+      c->req_len = (uint16_t)(c->req_len + n);
       c->req[c->req_len] = '\0';
     }
     char *eol = strstr(c->req, "\r\n");
@@ -207,8 +220,7 @@ static err_t on_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
       c->responded = true;
       http_route(c);
       pbuf_free(p);
-      http_flush(c);
-      return ERR_OK;
+      return http_flush(c);
     }
   }
 
@@ -227,9 +239,7 @@ static err_t on_poll(void *arg, struct tcp_pcb *pcb)
 {
   http_conn_t *c = (http_conn_t *)arg;
   if (!c) { tcp_abort(pcb); return ERR_ABRT; }
-  /* idle/stuck connection: drop it */
-  http_close(c);
-  return ERR_ABRT;
+  return http_close(c);   /* reclaim idle/stuck connection */
 }
 
 static err_t on_accept(void *arg, struct tcp_pcb *pcb, err_t err)
