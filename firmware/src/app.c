@@ -38,6 +38,10 @@ static macro_set_t g_set;
 static bool     s_autostart_armed = false;
 static uint32_t s_autostart_at = 0;
 
+/* onboard KEY button (PA0) start/stop toggle, with debounce */
+static bool     s_btn_prev = false;
+static uint32_t s_btn_ms = 0;
+
 //--------------------------------------------------------------------+
 // defaults
 //--------------------------------------------------------------------+
@@ -338,6 +342,18 @@ void app_task(void)
     if (g_set.autostart && g_set.count > 0 && !macro_running()) {
       do_start();
     }
+  }
+
+  /* onboard KEY button (PA0): a debounced press toggles start/stop */
+  {
+    bool btn = board_button_read();
+    uint32_t now = board_millis();
+    if (btn && !s_btn_prev && (now - s_btn_ms) > 250u) {
+      s_btn_ms = now;
+      if (macro_running()) macro_stop();
+      else                 do_start();
+    }
+    s_btn_prev = btn;
   }
 
   macro_task();

@@ -243,7 +243,10 @@ Cihaz **ekranı görmez**; bir uygulamayı "başlatmak" için o işletim sistemi
    açıp **aralık** ver (makro, her aralıkta tekrar çalışır); kapalıysa bir kez çalışır.
 5. **Başlat**'a bas. ⚠️ Çıktı **o an odakta olan pencereye** gider; makro bir
    uygulama açmıyorsa, Başlat'tan önce/sonra hedefe geçmek için betiğe `wait` koy.
-6. **Durdur** ile her an durdur.
+6. **Durdur** ile her an durdur. (Ayrıca karttaki **KEY (PA0) butonu** da
+   başlat/durdur yapar — bir bas başlatır, tekrar bas durdurur; web sayfası
+   gerekmez. "Takınca otomatik başlat" ile birleşince cihaz tamamen web'siz
+   kullanılabilir.)
 7. **Cihaza kaydet (flash)**: tüm makrolar + ayarlar cihazda saklanır, tak-çıkar
    sonrası hatırlanır. (Flash yazılırken USB ~1-2 sn duraklar; normaldir.)
 
