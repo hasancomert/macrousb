@@ -7,8 +7,14 @@
 #include "stm32f4xx_hal.h"
 #include <string.h>
 
-#define STORE_ADDR    0x08060000UL    /* sector 7 base (last 128 KiB) */
-#define STORE_SECTOR  FLASH_SECTOR_7
+/* Config lives in the last 128 KiB flash sector of the part. */
+#if defined(STM32F401xC)               /* 256 KiB: last sector is 5 */
+  #define STORE_ADDR    0x08020000UL
+  #define STORE_SECTOR  FLASH_SECTOR_5
+#else                                  /* 512 KiB (F411xE): last sector is 7 */
+  #define STORE_ADDR    0x08060000UL
+  #define STORE_SECTOR  FLASH_SECTOR_7
+#endif
 #define STORE_MAGIC   0x4D554332UL     /* "MUC2" (v2 = macro set) */
 
 typedef struct {

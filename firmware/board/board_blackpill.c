@@ -1,8 +1,10 @@
 /**
- * board_f411_blackpill.c -- STM32F411CEU6 "Black Pill" V2.0 board support.
+ * board_blackpill.c -- STM32F4 "Black Pill" board support (F411CEU6 / F401RCT6).
  *
- * Clock/pin/USB bring-up adapted from TinyUSB's hw/bsp/stm32f4 reference for
- * this exact board (MIT). Kept in one file so a model change is localised.
+ * Pins (PC13 LED, PA0 button, PA11/PA12 USB) are common to these boards; the
+ * PLL derives from HSE_VALUE so the same clock code fits 25 MHz or 8 MHz
+ * crystals. The MCU density (flash/RAM), startup and linker come from the
+ * Makefile's MCU profile. Bring-up adapted from TinyUSB's hw/bsp/stm32f4 (MIT).
  */
 #include "board.h"
 #include "stm32f4xx_hal.h"
@@ -20,7 +22,8 @@
 /* -------- 1 ms time base -------- */
 static volatile uint32_t s_ticks = 0;
 
-/* 25 MHz HSE -> VCO 336 MHz -> SYSCLK 84 MHz (/4), USB 48 MHz (/7). */
+/* HSE -> PLLM (=HSE_MHz) gives 1 MHz VCO input -> VCO 336 MHz ->
+ * SYSCLK 84 MHz (/4), USB 48 MHz (/7). Works for 25 MHz or 8 MHz crystals. */
 static void board_clock_init(void)
 {
   RCC_OscInitTypeDef osc = {0};

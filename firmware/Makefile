@@ -1,10 +1,11 @@
-# macrousb firmware -- STM32F411CEU6 "Black Pill"
+# macrousb firmware -- STM32F4 "Black Pill"
 # Toolchain: arm-none-eabi-gcc.  Run firmware/third_party/fetch_deps.sh first.
 #
-#   make            build build/macrousb.elf (+ .bin/.hex)
-#   make USE_ECM=1  build with CDC-ECM instead of RNDIS (Linux/macOS)
-#   make flash-st   flash via ST-Link (st-flash)
-#   make flash-dfu  flash via USB DFU (dfu-util)
+#   make                       build for STM32F411CEU6 (default)
+#   make MCU=f401rc            build for STM32F401RCT6 (256 KB / 64 KB, small-RAM)
+#   make MCU=f401rc HSE_VALUE=8000000   ... with an 8 MHz crystal
+#   make USE_ECM=1             CDC-ECM instead of RNDIS (Linux/macOS)
+#   make flash-st | flash-dfu  flash via ST-Link / USB DFU
 #   make clean
 
 TARGET   = macrousb
@@ -25,12 +26,29 @@ TUSB       = $(TP)/tinyusb
 
 # ---- options ----
 USE_ECM ?= 0
+MCU     ?= f411
+
+# ---- per-MCU profile (device define / startup / linker / small-RAM) ----
+ifeq ($(MCU),f411)
+  MCU_DEF    = STM32F411xE
+  STARTUP_S  = startup_stm32f411xe.s
+  LDSCRIPT   = linker/STM32F411CEUx_FLASH.ld
+  HSE_VALUE ?= 25000000
+else ifeq ($(MCU),f401rc)
+  MCU_DEF    = STM32F401xC
+  STARTUP_S  = startup_stm32f401xc.s
+  LDSCRIPT   = linker/STM32F401RCTx_FLASH.ld
+  HSE_VALUE ?= 25000000
+  MCU_EXTRA  = -DMACROUSB_SMALL_RAM
+else
+  $(error Unknown MCU '$(MCU)'. Use: f411 or f401rc)
+endif
 
 # ---- MCU ----
 MCUFLAGS = -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard
 
-DEFS = -DSTM32F411xE -DUSE_HAL_DRIVER -DHSE_VALUE=25000000 \
-       -DCFG_TUSB_MCU=OPT_MCU_STM32F4 -DUSE_ECM=$(USE_ECM)
+DEFS = -D$(MCU_DEF) -DUSE_HAL_DRIVER -DHSE_VALUE=$(HSE_VALUE) \
+       -DCFG_TUSB_MCU=OPT_MCU_STM32F4 -DUSE_ECM=$(USE_ECM) $(MCU_EXTRA)
 
 GEN = $(BUILD)/generated/web_content.h
 
@@ -48,7 +66,6 @@ CFLAGS  = $(MCUFLAGS) $(DEFS) $(INC) -Og -g3 \
           -Wall -std=gnu11 -MMD -MP
 ASFLAGS = $(MCUFLAGS) -x assembler-with-cpp -MMD -MP
 
-LDSCRIPT = linker/STM32F411CEUx_FLASH.ld
 LDFLAGS  = $(MCUFLAGS) -specs=nano.specs -T$(LDSCRIPT) \
            -Wl,--gc-sections -Wl,-Map=$(BUILD)/$(TARGET).map -Wl,--print-memory-usage
 
@@ -63,7 +80,7 @@ APP_C = \
   src/http_server.c \
   src/flash_store.c \
   src/syscalls.c \
-  board/board_f411_blackpill.c
+  board/board_blackpill.c
 
 HAL_C = \
   $(HAL)/Src/stm32f4xx_hal.c \
@@ -77,7 +94,7 @@ HAL_C = \
   $(HAL)/Src/stm32f4xx_hal_flash_ex.c
 
 CMSIS_C = $(CMSIS_DEV)/Source/Templates/system_stm32f4xx.c
-STARTUP = $(CMSIS_DEV)/Source/Templates/gcc/startup_stm32f411xe.s
+STARTUP = $(CMSIS_DEV)/Source/Templates/gcc/$(STARTUP_S)
 
 LWIP_C = \
   $(wildcard $(LWIP)/src/core/*.c) \

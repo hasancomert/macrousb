@@ -16,9 +16,15 @@
 #include <stdlib.h>
 #include <stdbool.h>
 
-#define REQ_MAX   2048  /* request line; fits GET /api/setmacro?...&script=<url-encoded 512> */
-#define BUF_MAX   1700  /* response headers + composed JSON body */
-#define JSON_MAX  1400  /* max JSON body from the app (e.g. one macro's script) */
+#ifdef MACROUSB_SMALL_RAM         /* F401RC: smaller macros -> smaller buffers */
+  #define REQ_MAX   1152  /* fits GET /api/setmacro?...&script=<url-encoded 256> */
+  #define BUF_MAX   1024
+  #define JSON_MAX  900
+#else
+  #define REQ_MAX   2048  /* fits GET /api/setmacro?...&script=<url-encoded 512> */
+  #define BUF_MAX   1700
+  #define JSON_MAX  1400
+#endif
 
 typedef struct {
   struct tcp_pcb *pcb;

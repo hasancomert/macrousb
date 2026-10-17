@@ -73,16 +73,28 @@ ECM derleme anahtarı var.
 
 ## Donanım
 
-**STM32F411CEU6 "Black Pill" V2.0 (WeAct).** 512 KB flash / 128 KB RAM, USB OTG-FS.
+STM32F4 "Black Pill" kartları. İki MCU profili desteklenir:
+
+| MCU | Flash / RAM | Makefile | Not |
+|-----|-------------|----------|-----|
+| **STM32F411CEU6** | 512 KB / 128 KB | `make` (varsayılan) | bol RAM |
+| **STM32F401RCT6** | 256 KB / 64 KB | `make MCU=f401rc` | küçük-RAM profili (RAM ~%50) |
+
+Pin haritası iki kartta da ortak:
 
 | İşlev | Pin | Not |
 |-------|-----|-----|
 | USB D− / D+ | PA11 / PA12 | AF10, VBUS algılama kapalı |
 | Durum LED'i | PC13 | Aktif-düşük |
 | Kullanıcı butonu | PA0 | Aktif-düşük |
-| Saat | 25 MHz HSE | → 84 MHz SYSCLK, 48 MHz USB |
+| Saat | HSE kristal | PLLM = HSE/1MHz → 84 MHz SYSCLK, 48 MHz USB |
 
-Kart-bağımlı her şey tek yerde: [`firmware/board/`](firmware/board).
+> **Kristal:** Varsayılan 25 MHz. Kartında 8 MHz kristal varsa:
+> `make MCU=f401rc HSE_VALUE=8000000`. (USB için harici kristal şart; iç osilatör
+> yeterince hassas değil.)
+
+Kart-bağımlı her şey tek yerde: [`firmware/board/board_blackpill.c`](firmware/board/board_blackpill.c).
+MCU'ya göre değişen density/startup/linker Makefile'daki `MCU` profilinden gelir.
 
 ---
 
@@ -122,10 +134,14 @@ macrousb/
 sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi make git python3
 
 cd firmware/third_party && ./fetch_deps.sh    # TinyUSB, lwIP, HAL, CMSIS (sabit sürümler)
-cd .. && make                                 # RNDIS (Windows) — veya: make USE_ECM=1
+cd ..
+make                 # STM32F411CEU6 (varsayılan)
+make MCU=f401rc      # STM32F401RCT6 (256 KB / 64 KB)
+# ek anahtarlar birleşebilir: make MCU=f401rc USE_ECM=1 HSE_VALUE=8000000
 ```
-Çıktı `firmware/build/macrousb.{elf,bin,hex}`. Örnek boyut: **FLASH %15, RAM %56**
-(RAM'in çoğu lwIP tamponları; F411 için bol).
+Çıktı `firmware/build/macrousb.{elf,bin,hex}`. Örnek boyut:
+- **F411:** FLASH %15, RAM %56
+- **F401RC:** FLASH %29, RAM %50 (küçük-RAM profili; 64 KB'a rahat sığar)
 
 ---
 
@@ -284,7 +300,11 @@ Cihaz **ekranı görmez**; bir uygulamayı "başlatmak" için o işletim sistemi
   (çoğu lwIP tamponları); F103'ün 20 KB RAM'i yetmez, USB çevre birimi de bu yığın
   için uygun değildir. Birincil tasarım F4 üzerinedir.
 - **VID/PID:** `0xCafe/0x4020` — TinyUSB test kimlikleri, kayıtlı değil.
-- **Makro limitleri:** en çok **6 makro**, her biri **512 bayt** betik.
+- **Makro limitleri:** F411'de en çok **6 makro × 512 bayt**; F401RC'de (küçük-RAM)
+  **4 makro × 256 bayt**.
+- **F401RC (64 KB RAM):** Küçük-RAM profiliyle çalışır (RAM ~%50); lwIP tamponları
+  ve makro boyutları F411'e göre daha küçüktür. Yoğun yükte (çok eşzamanlı
+  bağlantı) F411 kadar bol değil ama tek tarayıcı için fazlasıyla yeterli.
 
 ---
 

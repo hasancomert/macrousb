@@ -15,18 +15,30 @@
 #define LWIP_SOCKET                 0
 #define LWIP_RAW                    0
 
-/* ---- memory ---- */
+/* ---- memory ----
+ * Two profiles: the default suits 128 KiB parts (F411); MACROUSB_SMALL_RAM
+ * (set by the Makefile for f401rc) fits the 64 KiB F401RC. */
 #define MEM_LIBC_MALLOC             0
 #define MEMP_MEM_MALLOC             0
 #define MEM_ALIGNMENT               4
-#define MEM_SIZE                    (40 * 1024)
 
-#define MEMP_NUM_PBUF               16
-#define PBUF_POOL_SIZE              8
-#define MEMP_NUM_UDP_PCB            6
-#define MEMP_NUM_TCP_PCB            6
-#define MEMP_NUM_TCP_PCB_LISTEN     2
-#define MEMP_NUM_TCP_SEG            16
+#ifdef MACROUSB_SMALL_RAM
+  #define MEM_SIZE                  (12 * 1024)
+  #define MEMP_NUM_PBUF             10
+  #define PBUF_POOL_SIZE            4
+  #define MEMP_NUM_UDP_PCB          4
+  #define MEMP_NUM_TCP_PCB          4
+  #define MEMP_NUM_TCP_PCB_LISTEN   1
+  #define MEMP_NUM_TCP_SEG          8
+#else
+  #define MEM_SIZE                  (40 * 1024)
+  #define MEMP_NUM_PBUF             16
+  #define PBUF_POOL_SIZE            8
+  #define MEMP_NUM_UDP_PCB          6
+  #define MEMP_NUM_TCP_PCB          6
+  #define MEMP_NUM_TCP_PCB_LISTEN   2
+  #define MEMP_NUM_TCP_SEG          16
+#endif
 
 /* ---- protocols ---- */
 #define LWIP_IPV4                   1
@@ -45,8 +57,13 @@
 
 /* ---- TCP sizing (full-speed USB, MTU 1500) ---- */
 #define TCP_MSS                     (1500 - 20 - 20)
-#define TCP_SND_BUF                 (4 * TCP_MSS)
-#define TCP_WND                     (4 * TCP_MSS)
+#ifdef MACROUSB_SMALL_RAM
+  #define TCP_SND_BUF               (2 * TCP_MSS)
+  #define TCP_WND                   (3 * TCP_MSS)
+#else
+  #define TCP_SND_BUF               (4 * TCP_MSS)
+  #define TCP_WND                   (4 * TCP_MSS)
+#endif
 
 /* ---- netif ---- */
 #define ETH_PAD_SIZE                0

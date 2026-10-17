@@ -1,16 +1,18 @@
 /**
  * board.h -- board abstraction for macrousb.
  *
- * ALL board-dependent definitions live here and in the matching board_*.c.
- * To port to another STM32F4/F7, provide a new board_<name>.c implementing
- * this API and adjust the constants below (and the Makefile's CFG_TUSB_MCU,
- * startup file and linker script).
+ * ALL board-dependent definitions live here and in board_blackpill.c.
+ * The Makefile's MCU profile (f411 / f401rc) picks the device define, startup,
+ * linker script and HSE_VALUE; the pin map below is common to these Black Pills.
  *
- * Target: STM32F411CEU6 "Black Pill" V2.0  (WeAct)
- *   - 25 MHz HSE -> 84 MHz SYSCLK, 48 MHz USB
- *   - User LED    : PC13 (active-low)
- *   - User button : PA0  (active-low, "KEY")
- *   - USB OTG FS  : PA11 (D-) / PA12 (D+), AF10, VBUS sensing disabled
+ * Target: STM32F4 "Black Pill" (WeAct-style)
+ *   - STM32F411CEU6 (512 KB / 128 KB)  -- make MCU=f411   (default)
+ *   - STM32F401RCT6 (256 KB /  64 KB)  -- make MCU=f401rc
+ *   - HSE crystal   : PLLM auto-derives from HSE_VALUE (25 MHz default; pass
+ *                     HSE_VALUE=8000000 if the board has an 8 MHz crystal)
+ *   - User LED      : PC13 (active-low)
+ *   - User button   : PA0  (active-low, "KEY")
+ *   - USB OTG FS    : PA11 (D-) / PA12 (D+), AF10, VBUS sensing disabled
  */
 #ifndef BOARD_H_
 #define BOARD_H_

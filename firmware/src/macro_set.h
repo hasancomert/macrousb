@@ -7,8 +7,13 @@
 #include <stdint.h>
 
 #define MACRO_NAME_MAX    24
-#define MACRO_SCRIPT_MAX  512
-#define MACRO_COUNT_MAX   6
+#ifdef MACROUSB_SMALL_RAM          /* F401RC (64 KiB) */
+  #define MACRO_SCRIPT_MAX  256
+  #define MACRO_COUNT_MAX   4
+#else                              /* F411 (128 KiB) */
+  #define MACRO_SCRIPT_MAX  512
+  #define MACRO_COUNT_MAX   6
+#endif
 
 typedef struct {
   char name[MACRO_NAME_MAX];
