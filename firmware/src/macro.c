@@ -62,6 +62,7 @@ typedef struct {
 static char     s_run[MACRO_SCRIPT_MAX];
 static uint16_t s_run_len;
 static uint16_t s_pos;            /* parse cursor */
+static uint16_t s_loop_point;     /* restart offset for `loop` (0 = whole script) */
 
 static bool     s_running;
 static bool     s_loop;
@@ -251,6 +252,12 @@ static bool parse_next_action(void)
     const char *rest = ln + clen; size_t rlen = len - clen;
     while (rlen && (*rest == ' ' || *rest == '\t')) { rest++; rlen--; }
 
+    if (itok_eq(cmd, clen, "loop")) {
+      /* marker: lines above run once; from here on repeats each loop.
+       * s_pos is already past this line. */
+      s_loop_point = s_pos;
+      continue;
+    }
     if (itok_eq(cmd, clen, "text")) {
       s_act.type = A_TEXT; s_act.arg = rest; s_act.arglen = (uint16_t)rlen; return true;
     }
@@ -402,6 +409,7 @@ void macro_start(const char *script, bool loop, uint32_t interval_ms, host_profi
   s_run[n] = '\0';
   s_run_len = (uint16_t)n;
   s_pos = 0;
+  s_loop_point = 0;
 
   s_loop = loop;
   s_interval = (interval_ms < INTERVAL_MIN_MS) ? INTERVAL_MIN_MS : interval_ms;
@@ -446,7 +454,7 @@ void macro_task(void)
   if (s_between) {
     if ((int32_t)(now - s_next) < 0) return;
     s_between = false;
-    s_pos = 0;                 /* restart script */
+    s_pos = s_loop_point;      /* restart (after `loop` marker, or top) */
   }
 
   if (s_waiting) {

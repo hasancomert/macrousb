@@ -17,6 +17,8 @@
  *   wait <ms>                delay in milliseconds
  *   mouse move <dx> <dy>     relative move (pixels, can be negative)
  *   mouse click <left|right|middle>
+ *   loop                     when looping: lines ABOVE run once, lines BELOW
+ *                            repeat each loop (e.g. launch once, then repeat)
  */
 #ifndef MACRO_H_
 #define MACRO_H_

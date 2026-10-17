@@ -180,6 +180,7 @@ satırlar yorumdur.
 | `wait <ms>` | milisaniye bekler |
 | `mouse move <dx> <dy>` | fareyi **göreli** oynatır (piksel, +/−) |
 | `mouse click <left\|right\|middle>` | fare tıklaması |
+| `loop` | Döngü açıkken: bu satırın **üstü bir kez**, **altı her turda** tekrar (uygulamayı bir kez açıp gerisini tekrarlamak için) |
 
 `launch ...`, seçili **host profiline** göre doğru "çalıştır" dizisine açılır
 (aşağıya bak). `launch`'tan sonra uygulamanın açılması için **`wait` koy**.
