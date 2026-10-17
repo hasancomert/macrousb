@@ -34,14 +34,16 @@ ifeq ($(MCU),f411)
   STARTUP_S  = startup_stm32f411xe.s
   LDSCRIPT   = linker/STM32F411CEUx_FLASH.ld
   HSE_VALUE ?= 25000000
-else ifeq ($(MCU),f401rc)
+else ifneq (,$(filter $(MCU),f401 f401rc))
+  # STM32F401 256 KB family (CCU6 / CDU6 / RCT6): 256 KB flash, 64 KB RAM.
+  # Targets the smallest common config, so it is safe on 384 KB / 96 KB parts too.
   MCU_DEF    = STM32F401xC
   STARTUP_S  = startup_stm32f401xc.s
   LDSCRIPT   = linker/STM32F401RCTx_FLASH.ld
   HSE_VALUE ?= 25000000
   MCU_EXTRA  = -DMACROUSB_SMALL_RAM
 else
-  $(error Unknown MCU '$(MCU)'. Use: f411 or f401rc)
+  $(error Unknown MCU '$(MCU)'. Use: f411 or f401 (alias f401rc))
 endif
 
 # ---- MCU ----
