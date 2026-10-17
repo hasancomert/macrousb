@@ -89,6 +89,7 @@ mouse click &lt;left|right|middle&gt;
     <label class="chk"><input id="loop" type="checkbox"> Döngü — aralıkla tekrarla</label>
     <label for="interval">Döngü aralığı (saniye)</label>
     <input id="interval" type="number" min="0.1" step="0.1" value="3">
+    <label class="chk"><input id="autostart" type="checkbox"> Takınca seçili makroyu otomatik başlat</label>
   </div>
 
   <div class="card">
@@ -123,6 +124,7 @@ function applyListMeta(d){
   sel = d.selected|0; count = d.count|0;
   $('#host').value = String(d.host);
   $('#loop').checked = !!d.loop;
+  $('#autostart').checked = !!d.autostart;
   if(document.activeElement !== $('#interval')) $('#interval').value = d.interval;
   const s = $('#sel'); s.innerHTML='';
   (d.names||[]).forEach((n,i)=>{const o=document.createElement('option');o.value=i;o.textContent=(n||('Makro '+(i+1)));s.appendChild(o);});
@@ -182,12 +184,13 @@ $('#btnApply').onclick = async () => {
   catch(e){ banner('err',e.message); }
 };
 async function pushOpts(){
-  try{ await api('/api/opts?loop='+($('#loop').checked?1:0)+'&interval='+enc($('#interval').value)+'&host='+$('#host').value); }
+  try{ await api('/api/opts?loop='+($('#loop').checked?1:0)+'&autostart='+($('#autostart').checked?1:0)+'&interval='+enc($('#interval').value)+'&host='+$('#host').value); }
   catch(e){}
 }
 $('#host').onchange = pushOpts;
 $('#loop').onchange = pushOpts;
 $('#interval').onchange = pushOpts;
+$('#autostart').onchange = pushOpts;
 
 $('#btnStart').onclick = async () => {
   try{ await applyEditor(); await pushOpts(); await api('/api/select?i='+sel); await api('/api/start'); await refreshStatus(); clearBanner(); }

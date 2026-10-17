@@ -30,8 +30,13 @@
 
 #define INTERVAL_MIN_MS 20u
 #define INTERVAL_MAX_MS 3600000u
+#define AUTOSTART_DELAY_MS 3000u   /* after mount, before auto-running a macro */
 
 static macro_set_t g_set;
+
+/* autostart-on-plug state */
+static bool     s_autostart_armed = false;
+static uint32_t s_autostart_at = 0;
 
 //--------------------------------------------------------------------+
 // defaults
@@ -167,11 +172,12 @@ static int status_json(char *out, int cap)
   if (g_set.count > 0 && g_set.selected < g_set.count)
     json_escape(g_set.items[g_set.selected].name, name, sizeof(name));
   int n = snprintf(out, (size_t)cap,
-    "{\"running\":%s,\"emitting\":%s,\"loop\":%s,\"interval\":%s,\"host\":%u,"
+    "{\"running\":%s,\"emitting\":%s,\"loop\":%s,\"autostart\":%s,\"interval\":%s,\"host\":%u,"
     "\"selected\":%u,\"count\":%u,\"name\":\"%s\"}",
     macro_running() ? "true" : "false",
     macro_is_emitting() ? "true" : "false",
     g_set.loop ? "true" : "false",
+    g_set.autostart ? "true" : "false",
     ivs, g_set.host, g_set.selected, g_set.count, name);
   return (n < 0) ? 0 : (n < cap ? n : cap - 1);
 }
@@ -180,8 +186,9 @@ static int list_json(char *out, int cap)
 {
   char ivs[16]; fmt_interval(ivs, sizeof(ivs));
   int n = snprintf(out, (size_t)cap,
-    "{\"selected\":%u,\"host\":%u,\"loop\":%s,\"interval\":%s,\"count\":%u,\"names\":[",
-    g_set.selected, g_set.host, g_set.loop ? "true" : "false", ivs, g_set.count);
+    "{\"selected\":%u,\"host\":%u,\"loop\":%s,\"autostart\":%s,\"interval\":%s,\"count\":%u,\"names\":[",
+    g_set.selected, g_set.host, g_set.loop ? "true" : "false",
+    g_set.autostart ? "true" : "false", ivs, g_set.count);
   for (unsigned i = 0; i < g_set.count && n > 0 && n < cap; i++) {
     char nm[2 * MACRO_NAME_MAX];
     json_escape(g_set.items[i].name, nm, sizeof(nm));
@@ -279,6 +286,7 @@ int app_http_api(const char *method, const char *path, const char *query,
   if (strcmp(path, "/api/opts") == 0) {
     long v;
     if (query_get_int(query, "loop", &v)) g_set.loop = (v != 0);
+    if (query_get_int(query, "autostart", &v)) g_set.autostart = (v != 0);
     if (query_get_int(query, "host", &v) && v >= 0 && v <= 2) g_set.host = (uint8_t)v;
     char buf[24];
     if (query_get(query, "interval", buf, sizeof(buf))) {
@@ -323,6 +331,30 @@ void app_init(void)
 
 void app_task(void)
 {
+  /* autostart: a few seconds after plug-in, run the selected macro once */
+  if (s_autostart_armed && tud_mounted() &&
+      (int32_t)(board_millis() - s_autostart_at) >= 0) {
+    s_autostart_armed = false;
+    if (g_set.autostart && g_set.count > 0 && !macro_running()) {
+      do_start();
+    }
+  }
+
   macro_task();
   led_update();
+}
+
+/* USB mount callbacks: arm/disarm autostart. */
+void tud_mount_cb(void)
+{
+  if (g_set.autostart && g_set.count > 0) {
+    s_autostart_armed = true;
+    s_autostart_at = board_millis() + AUTOSTART_DELAY_MS;
+  }
+}
+
+void tud_umount_cb(void)
+{
+  s_autostart_armed = false;
+  macro_stop();
 }

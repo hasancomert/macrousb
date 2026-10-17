@@ -25,6 +25,8 @@ typedef struct {
   uint8_t  selected;     /* active index                       */
   uint8_t  host;         /* host_profile_t                     */
   uint8_t  loop;         /* bool: repeat on interval           */
+  uint8_t  autostart;    /* bool: run the selected macro automatically on plug-in */
+  uint8_t  _reserved[3]; /* alignment / future use             */
   uint32_t interval_ms;  /* delay between loop runs            */
   macro_item_t items[MACRO_COUNT_MAX];
 } macro_set_t;

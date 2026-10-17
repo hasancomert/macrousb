@@ -15,7 +15,7 @@
   #define STORE_ADDR    0x08060000UL
   #define STORE_SECTOR  FLASH_SECTOR_7
 #endif
-#define STORE_MAGIC   0x4D554332UL     /* "MUC2" (v2 = macro set) */
+#define STORE_MAGIC   0x4D554333UL     /* "MUC3" (macro set + autostart) */
 
 typedef struct {
   uint32_t    magic;
